@@ -1,5 +1,5 @@
 # f2_channel class 
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 02.10.2017 11:52
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 09.10.2017 14:14
 import numpy as np
 import tempfile
 import subprocess
@@ -8,53 +8,26 @@ import time
 
 from refptr import *
 from thesdk import *
-from rtl import *
 
 #Simple buffer template
-class f2_channel(rtl,thesdk):
+class f2_channel(thesdk):
+
     def __init__(self,*arg): 
-        self.proplist = [ 'Rs' ];    #properties that can be propagated from parent
+        self.proplist = [ 'Rs', 'channeldict' ];    #properties that can be propagated from parent
         self.Rs = 1;                 # sampling frequency
         self.iptr_A = refptr();
         self.model='py';             #can be set externally, but is not propagated
+        self.channeldict= { 'model': 'buffer', 'bandwidth':100e6, 'frequency':0, 'distance':0}
         self._Z = refptr();
         self._classfile=__file__
         if len(arg)>=1:
             parent=arg[0]
             self.copy_propval(parent,self.proplist)
             self.parent =parent;
+
     def init(self):
-        self.def_rtl()
-        rndpart=os.path.basename(tempfile.mkstemp()[1])
-        self._infile=self._rtlsimpath +'/A_' + rndpart +'.txt'
-        self._outfile=self._rtlsimpath +'/Z_' + rndpart +'.txt'
-        self._rtlcmd=self.get_rtlcmd()
+        pass
 
-    def get_rtlcmd(self):
-        #the could be gathered to rtl class in some way but they are now here for clarity
-        submission = ' bsub -q normal '  
-        rtllibcmd =  'vlib ' +  self._workpath + ' && sleep 2'
-        rtllibmapcmd = 'vmap work ' + self._workpath
-
-        if (self.model is 'vhdl'):
-            rtlcompcmd = ( 'vcom ' + self._rtlsrcpath + '/' + self._name + '.vhd '
-                          + self._rtlsrcpath + '/tb_'+ self._name+ '.vhd' )
-            rtlsimcmd =  ( 'vsim -64 -batch -t 1ps -g g_infile=' + 
-                           self._infile + ' -g g_outfile=' + self._outfile 
-                           + ' work.tb_' + self._name + ' -do "run -all; quit -f;"')
-            rtlcmd =  submission + rtllibcmd  +  ' && ' + rtllibmapcmd + ' && ' + rtlcompcmd +  ' && ' + rtlsimcmd
-
-        elif (self.model is 'sv'):
-            rtlcompcmd = ( 'vlog -work work ' + self._rtlsrcpath + '/' + self._name + '.sv '
-                           + self._rtlsrcpath + '/tb_' + self._name +'.sv')
-            rtlsimcmd = ( 'vsim -64 -batch -t 1ps -voptargs=+acc -g g_infile=' + self._infile
-                          + ' -g g_outfile=' + self._outfile + ' work.tb_' + self._name  + ' -do "run -all; quit;"')
-
-            rtlcmd =  submission + rtllibcmd  +  ' && ' + rtllibmapcmd + ' && ' + rtlcompcmd +  ' && ' + rtlsimcmd
-
-        else:
-            rtlcmd=[]
-        return rtlcmd
 
     def run(self,*arg):
         if len(arg)>0:
@@ -64,40 +37,48 @@ class f2_channel(rtl,thesdk):
             par=False
 
         if self.model=='py':
-            out=np.array(self.iptr_A.Value)
+            if self.channeldict['model'] == 'buffer':
+                out=self.buffer()
+
+            if self.channeldict['model'] == 'awgn':
+                out=self.awgn()
+
             if par:
                 queue.put(out)
             self._Z.Value=out
         else: 
-          try:
-              os.remove(self._infile)
-          except:
-              pass
-          fid=open(self._infile,'wb')
-          np.savetxt(fid,np.transpose(self.iptr_A.Value),fmt='%.0f')
-          #np.savetxt(fid,np.transpose(inp),fmt='%.0f')
-          fid.close()
-          while not os.path.isfile(self._infile):
-              #print("Wait infile to appear")
-              time.sleep(1)
-          try:
-              os.remove(self._outfile)
-          except:
-              pass
-          print("Running external command \n", self._rtlcmd , "\n" )
-          subprocess.call(shlex.split(self._rtlcmd));
-          
-          while not os.path.isfile(self._outfile):
-              #print("Wait outfile to appear")
-              time.sleep(1)
-          fid=open(self._outfile,'r')
-          #fid=open(self._infile,'r')
-          #out = .np.loadtxt(fid)
-          out = np.transpose(np.loadtxt(fid))
-          fid.close()
-          if par:
-              queue.put(out)
-          self._Z.Value=out
-          os.remove(self._infile)
-          os.remove(self._outfile)
+            print("ERROR: Only Python model currently available")
+    
+    def buffer(self):
+        loss=np.sqrt(self.free_space_path_loss(self.channeldict['frequency'],self.channeldict['distance']))
+        print(loss)
+        out=np.array(loss*self.iptr_A.Value)
+        print(out)
+        return out
 
+    def awgn(self):
+        kb=1.3806485279e-23
+        #noise power density in room temperature, 50 ohm load 
+        noise_power_density=4*kb*290*50
+        noise_rms_voltage=np.sqrt(noise_power_density*self.channeldict['bandwidth'])
+        #complex noise
+        noise_voltage=np.sqrt(0.5)*(np.random.normal(0,noise_rms_voltage,self.iptr_A.Value.shape)+1j*np.random.normal(0,noise_rms_voltage,self.iptr_A.Value.shape))
+        #Add noise
+        loss=np.sqrt(self.free_space_path_loss(self.channeldict['frequency'],self.channeldict['distance']))
+        out=np.array(loss*self.iptr_A.Value+noise_voltage)
+        return out
+
+    def random_spatial(self):   
+        pass
+
+#Helper function
+
+    def free_space_path_loss(self,frequency,distance):
+        #The _power_ loss of the free space
+        #Distance in meter
+        c=299792458 #Speed of light, m/s
+        if distance==0:
+            loss=1
+        else:
+            loss=1/(4*np.pi*(distance)*frequency/c)**2
+        return loss
