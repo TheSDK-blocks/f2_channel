@@ -1,6 +1,9 @@
 # f2_channel class 
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 09.10.2017 14:14
+#Thechannel model in this module is based on 802.11n channel models decribed in
+# IEEE 802.11n-03/940r4 TGn Channel Models
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 10.10.2017 18:11
 import numpy as np
+import scipy.linalg as sli
 import tempfile
 import subprocess
 import shlex
@@ -8,6 +11,49 @@ import time
 
 from refptr import *
 from thesdk import *
+
+def laplacian_pdf(sigma,theta):
+    #power angular spectrum
+    Q=1/(1-np.exp(-np.sqrt(2)*(theta[-1]-theta[0])))
+    #Q=1
+    PAS=Q*np.exp(-np.sqrt(2)*np.abs(theta)/sigma)/(np.sqrt(2)*sigma)
+    return PAS
+
+def corrm(d,f,sigma,AoA):
+     #Models defined only in the horizontal plane
+     # IEEE 802.11n-03/940r4 TGn Channel Models
+     #d is a Mx1 distance vector between antenna elements
+     #f is the transmission frequency
+     #sigma is the angular spread (standard deviation in radians.
+     #AoA is th angle of arrival in radians
+     c=299792458 #Speed of light, m/s
+     lamda=c/f 
+     dmat=sli.toeplitz(d,d)
+     M=dmat.shape[0] # Number of antennas
+     D=2*np.pi*dmat/lamda
+     #RXX integ | phi -pi -pi cos(d*np.sin(phi)*laplacian(sigma,phi)dphi
+     #RXY integ | phi -pi -pi sin(d*np.sin(phi)*laplacian(sigma,phi)dphi
+     #Combine these to matrix
+     phirange=np.linspace(-np.pi,np.pi,2**16)+AoA
+     dphi=np.diff(phirange)[0]
+     #There's an error due to numerical integration. With angle 0 the correlation must be 1
+     #calculate that
+     Kcorr=1/(np.sum(laplacian_pdf(sigma,phirange-AoA))*dphi)
+     laplacianweightmat=np.ones((M,1))*laplacian_pdf(sigma,phirange-AoA)
+     R=np.zeros((M,M),dtype='complex')
+     for i in range(M): 
+         R[i,:]=Kcorr*np.sum(np.exp(1j*D[i,:].reshape((-1,1))*np.sin(phirange))*laplacianweightmat,1)*dphi
+     return R
+
+def lambda2meter(distlambda,f):
+    c=299792458 
+    d=distlambda*c/f
+    return d
+
+def gen_dist_mat(d):
+    #Missing scipy. fast replacement
+    distmat=np.zeros((d.shape[0],d.shape[0]))
+    distmat=
 
 #Simple buffer template
 class f2_channel(thesdk):
