@@ -1,7 +1,7 @@
 # f2_channel class 
 #Thechannel model in this module is based on 802.11n channel models decribed in
 # IEEE 802.11n-03/940r4 TGn Channel Models
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 12.10.2017 18:45
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 13.10.2017 16:30
 import sys
 sys.path.append ('/home/projects/fader/TheSDK/Entities/refptr/py')
 sys.path.append ('/home/projects/fader/TheSDK/Entities/thesdk/py')
@@ -116,7 +116,8 @@ def generate_802_11n_channel(*arg):
     d=arg[0]['d'] 
     f=arg[0]['f'] 
     antennasrx=d.size #antennas of the receiver, currently only 1 antenna at the tx
-    #H matrix structure
+    antennastx=1
+    #H matrix structure receiver antennas on rows, tx antennas on columns
     chdict=get_802_11n_channel_params(model)
     tau=chdict['tau']
     tauind=np.round(tau*Rs).astype('int')
@@ -124,19 +125,114 @@ def generate_802_11n_channel(*arg):
     chanlen=tauind[-1]+1
     #this is a channel for a single transmitter to a single receiver
     #Currently the tranmitter has 1 antenna, receiver has M antennae
-    H=np.zeros((antennasrx,chanlen),dtype='complex')
+    H=np.zeros((chanlen,antennasrx,antennastx),dtype='complex')
     #For each channel there are clusters of taps
     for cluster_index in range(chdict['AoA'].shape[0]):
         #taps inside the cluster
         for tap_index in range(tau.shape[0]):
             tapdict={'K':chdict['K'][tap_index], 'tau':chdict['tau'][tap_index], 'pdb':chdict['pdb'][cluster_index][tap_index]} 
             #This is really fucked up way. Why on earth th column vector H[:,x] does not remain as a column vector.
-            shape=H[:,tauind[tap_index]].shape
-            H[:,tauind[tap_index]]=H[:,tauind[tap_index]]+generate_channel_tap(d,f,dicta).reshape(shape)
-
-
+            shape=H[tauind[tap_index],:,:].shape
+            H[tauind[tap_index],:,:]=H[tauind[tap_index],:,:]+generate_channel_tap(d,f,dicta).reshape(shape)
     return H
 
+def lambda2meter(distlambda,f):
+    d=np.array([distlambda*con.c/f])
+    return d
+
+def channel_propagate(signal,H):
+    #pass
+    #Calculate the convolution of the 3D matrix filter
+    #y(n)=SUM s(n-k)@H(k,:,:).T  
+    convlen=s.shape[0]+H.shape[0]-1
+    srx=np.zeros((convlen,H.shape[1]))
+    #print(srx.shape)
+    #print(H.shape[2])
+    
+    for i in range(H.shape[0]): #0th dim is the "time", k of the filter in
+        zt=np.zeros((i,H.shape[1]))
+        zt.shape=(-1,H.shape[1])
+        zb=np.zeros((H.shape[0]-1,H.shape[1]))
+        zb.shape=(-1,H.shape[1])
+        s_shift=np.r_['0',np.zeros((i,H.shape[1]),dtype='complex'),s@H[i,:,:].T,np.zeros((H.shape[0]-1-i,H.shape[1]))]
+        srx=srx+s_shift
+    return srx 
+
+
+#Simple buffer template
+class f2_channel(thesdk):
+
+    def __init__(self,*arg): 
+        self.proplist = [ 'Rs', 'channeldict' ];    #properties that can be propagated from parent
+        self.Rs = 1;                 # sampling frequency
+        self.iptr_A = refptr();
+        self.model='py';             #can be set externally, but is not propagated
+        self.channeldict= { 'model': 'buffer', 'bandwidth':100e6, 'frequency':0, 'distance':0}
+        self._Z = refptr();
+        self._classfile=__file__
+        if len(arg)>=1:
+            parent=arg[0]
+            self.copy_propval(parent,self.proplist)
+            self.parent =parent;
+
+    def init(self):
+        pass
+
+
+    def run(self,*arg):
+        if len(arg)>0:
+            par=True      #flag for parallel processing
+            queue=arg[0]  #multiprocessing.Queue as the first argument
+        else:
+            par=False
+
+        if self.model=='py':
+            if self.channeldict['model'] == 'buffer':
+                out=self.buffer()
+
+            if self.channeldict['model'] == 'awgn':
+                out=self.awgn()
+
+            if par:
+                queue.put(out)
+            self._Z.Value=out
+        else: 
+            print("ERROR: Only Python model currently available")
+    
+    def buffer(self):
+        loss=np.sqrt(self.free_space_path_loss(self.channeldict['frequency'],self.channeldict['distance']))
+        print(loss)
+        out=np.array(loss*self.iptr_A.Value)
+        print(out)
+        return out
+
+    def awgn(self):
+        kb=1.3806485279e-23
+        #noise power density in room temperature, 50 ohm load 
+        noise_power_density=4*kb*290*50
+        noise_rms_voltage=np.sqrt(noise_power_density*self.channeldict['bandwidth'])
+        #complex noise
+        noise_voltage=np.sqrt(0.5)*(np.random.normal(0,noise_rms_voltage,self.iptr_A.Value.shape)+1j*np.random.normal(0,noise_rms_voltage,self.iptr_A.Value.shape))
+        #Add noise
+        loss=np.sqrt(self.free_space_path_loss(self.channeldict['frequency'],self.channeldict['distance']))
+        out=np.array(loss*self.iptr_A.Value+noise_voltage)
+        return out
+
+    def random_spatial(self):   
+        pass
+
+
+#Helper function
+
+    def free_space_path_loss(self,frequency,distance):
+        #The _power_ loss of the free space
+        #Distance in meter
+        c=299792458 #Speed of light, m/s
+        if distance==0:
+            loss=1
+        else:
+            loss=1/(4*np.pi*(distance)*frequency/c)**2
+        return loss
 
 def get_802_11n_channel_params(model):
 # This function hard-codes the WLAN 802.11n channel model parameters and
@@ -336,87 +432,6 @@ def get_802_11n_channel_params(model):
 
     param_dict={'K':K, 'tau':tau, 'pdb':pdb, 'AS_Tx':AS_Tx, 'AoD':AoD, 'AS_Rx':AS_Rx, 'AoA':AoA}
     return param_dict
-
-
-
-def lambda2meter(distlambda,f):
-    d=np.array([distlambda*con.c/f])
-    return d
-
-
-#Simple buffer template
-class f2_channel(thesdk):
-
-    def __init__(self,*arg): 
-        self.proplist = [ 'Rs', 'channeldict' ];    #properties that can be propagated from parent
-        self.Rs = 1;                 # sampling frequency
-        self.iptr_A = refptr();
-        self.model='py';             #can be set externally, but is not propagated
-        self.channeldict= { 'model': 'buffer', 'bandwidth':100e6, 'frequency':0, 'distance':0}
-        self._Z = refptr();
-        self._classfile=__file__
-        if len(arg)>=1:
-            parent=arg[0]
-            self.copy_propval(parent,self.proplist)
-            self.parent =parent;
-
-    def init(self):
-        pass
-
-
-    def run(self,*arg):
-        if len(arg)>0:
-            par=True      #flag for parallel processing
-            queue=arg[0]  #multiprocessing.Queue as the first argument
-        else:
-            par=False
-
-        if self.model=='py':
-            if self.channeldict['model'] == 'buffer':
-                out=self.buffer()
-
-            if self.channeldict['model'] == 'awgn':
-                out=self.awgn()
-
-            if par:
-                queue.put(out)
-            self._Z.Value=out
-        else: 
-            print("ERROR: Only Python model currently available")
-    
-    def buffer(self):
-        loss=np.sqrt(self.free_space_path_loss(self.channeldict['frequency'],self.channeldict['distance']))
-        print(loss)
-        out=np.array(loss*self.iptr_A.Value)
-        print(out)
-        return out
-
-    def awgn(self):
-        kb=1.3806485279e-23
-        #noise power density in room temperature, 50 ohm load 
-        noise_power_density=4*kb*290*50
-        noise_rms_voltage=np.sqrt(noise_power_density*self.channeldict['bandwidth'])
-        #complex noise
-        noise_voltage=np.sqrt(0.5)*(np.random.normal(0,noise_rms_voltage,self.iptr_A.Value.shape)+1j*np.random.normal(0,noise_rms_voltage,self.iptr_A.Value.shape))
-        #Add noise
-        loss=np.sqrt(self.free_space_path_loss(self.channeldict['frequency'],self.channeldict['distance']))
-        out=np.array(loss*self.iptr_A.Value+noise_voltage)
-        return out
-
-    def random_spatial(self):   
-        pass
-
-#Helper function
-
-    def free_space_path_loss(self,frequency,distance):
-        #The _power_ loss of the free space
-        #Distance in meter
-        c=299792458 #Speed of light, m/s
-        if distance==0:
-            loss=1
-        else:
-            loss=1/(4*np.pi*(distance)*frequency/c)**2
-        return loss
     
 if __name__=="__main__":
     import sys
@@ -432,7 +447,7 @@ if __name__=="__main__":
     P=1
     dicta=get_802_11n_channel_params('A')
     H1=generate_channel_tap(d,f,dicta)
-    chdict={'Rs':500e6, 'model':'C', 'antennas':4, 'f':f, 'd':d}
+    chdict={'Rs':100e6, 'model':'C', 'antennas':4, 'f':f, 'd':d}
     H1=generate_802_11n_channel(chdict)
     #print(X)
     #print(X.shape)
@@ -443,8 +458,11 @@ if __name__=="__main__":
     #print(np.sum(np.abs(H)**2))
     #print(H1)
     #Channel to first antenna
-    print(H1[1,:])
-    print(H1[1,:].shape)
-    
-    #print(Rrx)
+    s=np.r_[range(100)]; s.shape=(-1,1)
+    srx=channel_propagate(s,H1)
+    #print(H1)
+    #print(H1[1,:])
+    #print(H1.shape)
+    #s@H1.T
+    print(srx)
 
