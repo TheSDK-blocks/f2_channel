@@ -1,7 +1,7 @@
 # f2_channel class 
 #Thechannel model in this module is based on 802.11n channel models decribed in
 # IEEE 802.11n-03/940r4 TGn Channel Models
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 13.10.2017 16:30
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 14.10.2017 20:55
 import sys
 sys.path.append ('/home/projects/fader/TheSDK/Entities/refptr/py')
 sys.path.append ('/home/projects/fader/TheSDK/Entities/thesdk/py')
@@ -17,159 +17,26 @@ import scipy.linalg as sli
 from refptr import *
 from thesdk import *
 
-def laplacian_pdf(sigma,theta):
-    #power angular spectrum
-    Q=1/(1-np.exp(-np.sqrt(2)*(theta[-1]-theta[0])))
-    #Q=1
-    PAS=Q*np.exp(-np.sqrt(2)*np.abs(theta)/sigma)/(np.sqrt(2)*sigma)
-    return PAS.reshape((1,-1))
 
-def generate_corr_mat(*arg):
-     #Is the dict better way to pass the arguments?
-     #Models defined only in the horizontal plane
-     # IEEE 802.11n-03/940r4 TGn Channel Models
-     #d is a Mx1 distance vector between antenna elements
-     #f is the transmission frequency
-     #sigma is the angular spread (standard deviation in radians.
-     #AoA is th angle of arrival in radians
-     #Add the receiver array at some point
-     d1=arg[0]      # Distance array for the receiver antenna
-     f=arg[1]       # Frequency
-     sigmarx=arg[2] # Angle spread for the receiver
-     AoA=arg[3]     #Angle of arrival for received
+#Order of definition: first the class, then the functions.
+#Class should describe the parameters required by the funtions.
 
-     lamda=con.c/f 
-     dmatrx=sli.toeplitz(d1,d1)
-     M1=dmatrx.shape[0] # Number of receive antennas
-     M2=1 #number of transmit antennas
-     Drx=2*np.pi*dmatrx/lamda
-     #RXX integ | phi -pi -pi cos(d*np.sin(phi)*laplacian(sigma,phi)dphi
-     #RXY integ | phi -pi -pi sin(d*np.sin(phi)*laplacian(sigma,phi)dphi
-     #Combine these to matrix
-     phirangerx=np.linspace(-np.pi,np.pi,2**16)+AoA
-     dphirx=np.diff(phirangerx)[0]
-     #There's an error due to numerical integration. With angle 0 the correlation must be 1
-     #calculate that
-     Kcorrrx=1/(np.sum(laplacian_pdf(sigma,phirangerx-AoA))*dphirx)
-     laplacianweightmatrx=np.ones((M1,1))@laplacian_pdf(sigmarx,phirangerx-AoA)
-     Rrx=np.zeros((M1,M1),dtype='complex')
-     for i in range(M1): 
-         Rrx[i,:]=Kcorrrx*np.sum(np.exp(1j*Drx[i,:].reshape((-1,1))*np.sin(phirangerx))*laplacianweightmatrx,1)*dphirx
-     #Would require similar computations if the TX would be modeled
-     Rtx=np.diagflat(np.ones((M2,1)))
-     #Random matrix
-     Hiid=1/np.sqrt(2)*(np.random.randn(M1,M2)+1j*np.random.rand(M1,M2))
-     #Correlation matrix 
-     X=scm.sqrt(Rrx)@Hiid@scm.sqrt(Rtx)
-     return X
-
-def generate_los_mat(*arg):
-     #Is the dict better way to pass the arguments?
-     #Models defined only in the horizontal plane
-     # IEEE 802.11n-03/940r4 TGn Channel Models
-     #d is a Mx1 distance vector between antenna elements
-     #f is the transmission frequency
-     #sigma is the angular spread (standard deviation in radians.
-     #AoA is th angle of arrival in radians
-     #Add the receiver array at some point
-     drx=arg[0]      # Distance array for the receiver antenna
-     dtx=np.array([0])
-     AoD=0
-     f=arg[1]       # Frequency
-     lamda=con.c/f 
-     AoA=arg[2]     #Angle of arrival for received
-     Drx=2*np.pi*drx/lamda*np.sin(AoA) #Relative phase shift in receiver array
-     Dtx=2*np.pi*dtx/lamda*np.sin(AoD) #Relative phase shift in transmitter array
-     LOS_vectorrx=np.exp(-1j*Drx)
-     LOS_vectorrx=LOS_vectorrx.reshape((-1,1))
-     LOS_vectortx=np.exp(1j*Dtx)
-     LOS_vectortx=LOS_vectortx.reshape((-1,1))
-     LOS_mat=LOS_vectorrx@LOS_vectortx.transpose()
-     return LOS_mat
-
-def generate_channel_tap(*arg):
-     #Is the dict better way to pass the arguments?
-     #Models defined only in the horizontal plane
-     # IEEE 802.11n-03/940r4 TGn Channel Models
-     #d is a Mx1 distance vector between antenna elements
-     #f is the transmission frequency
-     #sigma is the angular spread (standard deviation in radians.
-     #AoA is th angle of arrival in radians
-     #Add the receiver array at some point
-     drx=arg[0]      # Distance array for the receiver antenna
-     dtx=np.array([0])
-     f=arg[1]       # Frequency
-     lamda=con.c/f 
-     sigmarx=arg[2]['AS_Rx'] # Angle spread for the receiver
-     AoA=arg[2]['AoA']     #Angle of arrival for received
-     K=arg[2]['K']       #Rician factor
-     P=10**arg[2]['pdb']
-     X=generate_corr_mat(d,f,sigma,AoA)
-     L=generate_los_mat(d,f,AoA)
-     channel_tap=np.sqrt(P)*(np.sqrt(K/(K+1))*L+np.sqrt(1/(K+1))*X)
-     return channel_tap
-
-
-def generate_802_11n_channel(*arg):
-    Rs=arg[0]['Rs']   #Sampling rate
-    model=arg[0]['model']
-    d=arg[0]['d'] 
-    f=arg[0]['f'] 
-    antennasrx=d.size #antennas of the receiver, currently only 1 antenna at the tx
-    antennastx=1
-    #H matrix structure receiver antennas on rows, tx antennas on columns
-    chdict=get_802_11n_channel_params(model)
-    tau=chdict['tau']
-    tauind=np.round(tau*Rs).astype('int')
-    print(tauind)
-    chanlen=tauind[-1]+1
-    #this is a channel for a single transmitter to a single receiver
-    #Currently the tranmitter has 1 antenna, receiver has M antennae
-    H=np.zeros((chanlen,antennasrx,antennastx),dtype='complex')
-    #For each channel there are clusters of taps
-    for cluster_index in range(chdict['AoA'].shape[0]):
-        #taps inside the cluster
-        for tap_index in range(tau.shape[0]):
-            tapdict={'K':chdict['K'][tap_index], 'tau':chdict['tau'][tap_index], 'pdb':chdict['pdb'][cluster_index][tap_index]} 
-            #This is really fucked up way. Why on earth th column vector H[:,x] does not remain as a column vector.
-            shape=H[tauind[tap_index],:,:].shape
-            H[tauind[tap_index],:,:]=H[tauind[tap_index],:,:]+generate_channel_tap(d,f,dicta).reshape(shape)
-    return H
-
-def lambda2meter(distlambda,f):
-    d=np.array([distlambda*con.c/f])
-    return d
-
-def channel_propagate(signal,H):
-    #pass
-    #Calculate the convolution of the 3D matrix filter
-    #y(n)=SUM s(n-k)@H(k,:,:).T  
-    convlen=s.shape[0]+H.shape[0]-1
-    srx=np.zeros((convlen,H.shape[1]))
-    #print(srx.shape)
-    #print(H.shape[2])
-    
-    for i in range(H.shape[0]): #0th dim is the "time", k of the filter in
-        zt=np.zeros((i,H.shape[1]))
-        zt.shape=(-1,H.shape[1])
-        zb=np.zeros((H.shape[0]-1,H.shape[1]))
-        zb.shape=(-1,H.shape[1])
-        s_shift=np.r_['0',np.zeros((i,H.shape[1]),dtype='complex'),s@H[i,:,:].T,np.zeros((H.shape[0]-1-i,H.shape[1]))]
-        srx=srx+s_shift
-    return srx 
-
-
-#Simple buffer template
 class f2_channel(thesdk):
-
     def __init__(self,*arg): 
-        self.proplist = [ 'Rs', 'channeldict' ];    #properties that can be propagated from parent
-        self.Rs = 1;                 # sampling frequency
+        self.proplist = [ 'Rs', 'Rxantennalocations', 'frequency' 'channeldict' ];    #properties that can be propagated from parent
+        self.Rs = 100e6; # sampling frequency
+        self.frequency=1e9
+        self.users=2
+        self.Rxantennalocations=np.r_[0]
+        #input pointer is a pointer to A matrix indexed as s(user,time, txantenna)
+        #Channelis modeled as H(time,rxantenna, txantenna)
+        #Thus, Srx is SH^T-> Srx(time,rxantenna)
         self.iptr_A = refptr();
         self.model='py';             #can be set externally, but is not propagated
-        self.channeldict= { 'model': 'buffer', 'bandwidth':100e6, 'frequency':0, 'distance':0}
+        self.channeldict= { 'model': 'buffer', 'bandwidth':100e6, 'distance':2 }
         self._Z = refptr();
         self._classfile=__file__
+        self.H=np.array([])
         if len(arg)>=1:
             parent=arg[0]
             self.copy_propval(parent,self.proplist)
@@ -201,9 +68,9 @@ class f2_channel(thesdk):
     
     def buffer(self):
         loss=np.sqrt(self.free_space_path_loss(self.channeldict['frequency'],self.channeldict['distance']))
-        print(loss)
+        #print(loss)
         out=np.array(loss*self.iptr_A.Value)
-        print(out)
+        #print(out)
         return out
 
     def awgn(self):
@@ -218,25 +85,202 @@ class f2_channel(thesdk):
         out=np.array(loss*self.iptr_A.Value+noise_voltage)
         return out
 
-    def random_spatial(self):   
-        pass
+    def ch802_11n(self):   
+        users=self.iptr_A.Value.shape[0]
+        Rxantennalocations=self.Rxantennalocations.shape[0]
+        txantennas=self.iptr_A.Value.shape[1]
+        channelmodel=self.channeldict['model']
+        f=self.channeldict['frequency']
+        #param_dict={'K':K, 'tau':tau, 'pdb':pdb, 'AS_Tx':AS_Tx, 'AoD':AoD, 'AS_Rx':AS_Rx, 'AoA':AoA}
+        param_dict=get_802_11n_channel_params(channelmodel)
+        channel_dict={'Rs':self.Rs, 'model':channelmodel, 'frequency':self.frequency, 'Rxantennalocations':self.Rxantennalocations}
+        for i in range(self.users):
+            t=generate_802_11n_channel(channel_dict)
+            if i==0:
+               shape=t.shape
+               H=np.zeros((self.users,shape[0],shape[1],shape[2]),dtype='complex')
+               H[i,:,:,:]=t
+            else:
+               H[i,:,:,:]=t
+        self.H=H
+     
+    def run(self):
+        for i in range(self.users):
+            t=channel_propagate(self.iptr_A.Value,self.H[i])
+            if i==0:
+               shape=t.shape
+               srx=np.zeros((self.users,shape[0],shape[1]),dtype='complex')
+               srx[i,:,:]=t
+            else:
+               srx[i,:,:]=t
+        self._Z.Value=srx
+
+#Helper functions
+def generate_802_11n_channel(*arg): #{'Rs': 'model': 'Rxantennalocations': 'frequency': }
+    Rs=arg[0]['Rs']   #Sampling rate
+    model=arg[0]['model']
+    Rxantennalocations=arg[0]['Rxantennalocations'] 
+    frequency=arg[0]['frequency'] 
+    antennasrx=Rxantennalocations.size #antennas of the receiver, currently only 1 antenna at the tx
+    antennastx=1
+    #H matrix structure receiver antennas on rows, tx antennas on columns
+    channel_param_dict=get_802_11n_channel_params(model) #param_dict={'K':K, 'tau':tau, 'pdb':pdb, 'AS_Tx':AS_Tx, 'AoD':AoD, 'AS_Rx':AS_Rx, 'AoA':AoA}
+
+    tau=channel_param_dict['tau']
+    tauind=np.round(tau*Rs).astype('int')
+    chanlen=tauind[-1]+1 #Lenght of the channel in samples at Rs
+
+    #Create a channel fro a single transmitter to a single receiver
+    #Currently the tranmitter has 1 antenna, receiver has Multiple antennae
+    H=np.zeros((chanlen,antennasrx,antennastx),dtype='complex')
+    
+    
+    #Here we can generate the random Angles of Arrival.
+    #Let Angle of departure be o degrees by, and angle of arrival be random
+    channel_param_dict['AoD']=np.zeros(channel_param_dict['AoD'].shape)
+    shape=channel_param_dict['AoA'].shape
+    channel_param_dict['AoA']=np.random.rand(shape[0],shape[1])*360
+
+    #For each channel there are multiple clusters of taps
+    for cluster_index in range(channel_param_dict['AoA'].shape[0]):
+        #taps inside the cluster
+        for tap_index in range(tau.shape[0]):
+            tapdict={'Rxantennalocations': Rxantennalocations, 'frequency': frequency, 'K':channel_param_dict['K'][tap_index], 
+                    'tau':channel_param_dict['tau'][tap_index], 'pdb':channel_param_dict['pdb'][cluster_index][tap_index], 
+                     'AS_Tx':channel_param_dict['AS_Tx'][cluster_index][tap_index], 'AoD':channel_param_dict['AoD'][cluster_index][tap_index], 
+                    'AS_Rx':channel_param_dict['AS_Rx'][cluster_index][tap_index], 'AoA':channel_param_dict['AoA'][cluster_index][tap_index] } 
+            #Arguments for generate_channel
+            #distance array, frequency, {'AS_RX': 'AoA': 'K': 'pdb': }
+
+            #This is really fucked up way. Why on earth th column vector H[:,x] does not remain as a column vector.
+            shape=H[tauind[tap_index],:,:].shape
+            H[tauind[tap_index],:,:]=H[tauind[tap_index],:,:]+generate_channel_tap(tapdict).reshape(shape)
+    return H
+
+def generate_channel_tap(*arg):
+    #arg={'Rxantennalocations': , 'frequency':, 'K':, 'tau':, 'pdb':, 'AS_Tx':, 'AoD':, 'AS_Rx':, 'AoA': } 
+    #Models defined only in the horizontal plane
+    # IEEE 802.11n-03/940r4 TGn Channel Models
+    #d is a Mx1 distance vector between antenna elements
+    #f is the transmission frequency
+    #sigma is the angular spread (standard deviation in radians.
+    #AoA is th angle of arrival in degrees
+    #Add the receiver array at some point
+    K=arg[0]['K']       #Rician factor
+    P=10**arg[0]['pdb']
+    matdict=arg[0] #we can pass the arguments as is
+    X=generate_corr_mat(matdict)
+    L=generate_los_mat(matdict)
+    channel_tap=np.sqrt(P)*(np.sqrt(K/(K+1))*L+np.sqrt(1/(K+1))*X)
+    return channel_tap
+
+def generate_corr_mat(*arg): 
+    #arg={'Rxantennalocations': , 'frequency':, 'K':, 'tau':, 'pdb':, 'AS_Tx':, 'AoD':, 'AS_Rx':, 'AoA': } 
+    #The same dictionary OK as an argument as for generate channel tap
+    #Models defined only in the horizontal plane
+    # IEEE 802.11n-03/940r4 TGn Channel Models
+    #d is a Mx1 distance vector between antenna elements
+    #f is the transmission frequency
+    #sigma is the angular spread (standard deviation in radians.
+    #AoA is th angle of arrival in radians
+    #Add the receiver array at some point
+    Rxantennalocations=arg[0]['Rxantennalocations']  # Distance array for the receiver antenna
+    Txantennalocations=np.array([0])                 # Only one TX antenna
+    frequency=arg[0]['frequency']                            # Frequency
+    lamda=con.c/frequency 
+    sigmarx=arg[0]['AS_Rx']                          # Angle spread for the receiver
+    AoA=arg[0]['AoA']                                #Angle of arrival for received     in degrees
+    dmatrx=sli.toeplitz(Rxantennalocations,Rxantennalocations)
+    rxantennas=dmatrx.shape[0] # Number of receive antennas
+    txantennas=1 #number of transmit antennas
+    Drx=2*np.pi*dmatrx/lamda
+    #RXX integ | phi -pi -pi cos(d*np.sin(phi)*laplacian(sigma,phi)dphi
+    #RXY integ | phi -pi -pi sin(d*np.sin(phi)*laplacian(sigma,phi)dphi
+
+    #Combine these to matrix
+    phirangerx=np.linspace(-np.pi,np.pi,2**16)+2*np.pi/360*AoA
+    dphirx=np.diff(phirangerx)[0]
+    
+    #There's an error due to numerical integration. With angle 0 the correlation must be 1
+    #calculate that
+    Kcorrrx=1/(np.sum(laplacian_pdf(sigma,phirangerx-2*np.pi/360*AoA))*dphirx)
+    laplacianweightmatrx=np.ones((rxantennas,1))@laplacian_pdf(sigmarx,phirangerx-2*np.pi/360*AoA)
+    Rrx=np.zeros((rxantennas,rxantennas),dtype='complex')
+    for i in range(rxantennas): 
+        Rrx[i,:]=Kcorrrx*np.sum(np.exp(1j*Drx[i,:].reshape((-1,1))*np.sin(phirangerx))*laplacianweightmatrx,1)*dphirx
+
+    #Would require similar computations if the TX would be modeled
+    Rtx=np.diagflat(np.ones((txantennas,1)))
+
+    #Random matrix
+    Hiid=1/np.sqrt(2)*(np.random.randn(rxantennas,txantennas)+1j*np.random.rand(rxantennas,txantennas))
+    #Correlation matrix 
+    X=scm.sqrt(Rrx)@Hiid@scm.sqrt(Rtx)
+    return X
+
+def generate_los_mat(*arg): #Distance array, frequency, AoA
+    #arg={'Rxantennalocations': , 'frequency':, 'K':, 'tau':, 'pdb':, 'AS_Tx':, 'AoD':, 'AS_Rx':, 'AoA': } 
+    #The same dictionary OK as an argument as for generate channel tap
+    #Models defined only in the horizontal plane
+    # IEEE 802.11n-03/940r4 TGn Channel Models
+    #Rxantennalocations is a Mx1 distance vector between antenna elements
+    #frequency is the transmission frequency
+    #AS_Rx is the angular spread (standard deviation in degrees.
+    #AoA is th angle of arrival in degrees
+    #Add the receiver array at some point
+    Rxantennalocations=arg[0]['Rxantennalocations']  # Distance array for the receiver antenna
+    Txantennalocations=np.array([0])                 # Only one TX antenna
+    frequency=arg[0]['frequency']                            # Frequency
+    lamda=con.c/frequency 
+    sigmarx=arg[0]['AS_Rx']                          # Angle spread for the receiver
+    AoA=arg[0]['AoA']                                #Angle of arrival for received in degrees
+    AoD=np.r_[0]
+    lamda=con.c/frequency 
+    Drx=2*np.pi*Rxantennalocations/lamda*np.sin(2*np.pi/360*AoA) #Relative phase shift in receiver array
+    Dtx=2*np.pi*Txantennalocations/lamda*np.sin(2*np.pi/360*AoD) #Relative phase shift in transmitter array
+    LOS_vectorrx=np.exp(-1j*Drx)
+    LOS_vectorrx=LOS_vectorrx.reshape((-1,1))
+    LOS_vectortx=np.exp(1j*Dtx)
+    LOS_vectortx=LOS_vectortx.reshape((-1,1))
+    LOS_mat=LOS_vectorrx@LOS_vectortx.transpose()
+    return LOS_mat
+
+def generate_pure_channel(*arg):
+    model=arg[0]['model']
+    d=arg[0]['d'] 
+    f=arg[0]['f'] 
+    AoA=0
+    antennasrx=d.size #antennas of the receiver, currently only 1 antenna at the tx
+    antennastx=1
+    H=generate_los_mat(d,f,AoA)
+    return H
+
+def lambda2meter(distlambda,f):
+    d=np.array([distlambda*con.c/f])
+    return d
+
+def channel_propagate(signal,H):
+    #pass
+    #Calculate the convolution of the 3D matrix filter
+    #y(n)=SUM s(n-k)@H(k,:,:).T  
+    convlen=s.shape[0]+H.shape[0]-1
+    srx=np.zeros((convlen,H.shape[1]))
+    
+    for i in range(H.shape[0]): #0th dim is the "time", k of the filter in
+        zt=np.zeros((i,H.shape[1]))
+        zt.shape=(-1,H.shape[1])
+        zb=np.zeros((H.shape[0]-1,H.shape[1]))
+        zb.shape=(-1,H.shape[1])
+        s_shift=np.r_['0',np.zeros((i,H.shape[1]),dtype='complex'),s@H[i,:,:].T,np.zeros((H.shape[0]-1-i,H.shape[1]))]
+        srx=srx+s_shift
+    return srx 
 
 
-#Helper function
-
-    def free_space_path_loss(self,frequency,distance):
-        #The _power_ loss of the free space
-        #Distance in meter
-        c=299792458 #Speed of light, m/s
-        if distance==0:
-            loss=1
-        else:
-            loss=1/(4*np.pi*(distance)*frequency/c)**2
-        return loss
 
 def get_802_11n_channel_params(model):
 # This function hard-codes the WLAN 802.11n channel model parameters and
 # returns the ones corresponding to the desired channel model. 
+#param_dict={'K':K, 'tau':tau, 'pdb':pdb, 'AS_Tx':AS_Tx, 'AoD':AoD, 'AS_Rx':AS_Rx, 'AoA':AoA}
 
     if model=='A':
         
@@ -281,7 +325,6 @@ def get_802_11n_channel_params(model):
     elif model=='C':
         
         tau = np.array([0,10,20,30,40,50,60,70,80,90,110,140,170,200]) * 1e-9
-        tau.reshape((1,-1))
         K=np.zeros(tau.size) #K-factor for Line-of-sight
         
         pdb1 = np.array([0,-2.1,-4.3,-6.5,-8.6,-10.8,-13.0,-15.2,-17.3,-19.5],ndmin=2)
@@ -432,6 +475,23 @@ def get_802_11n_channel_params(model):
 
     param_dict={'K':K, 'tau':tau, 'pdb':pdb, 'AS_Tx':AS_Tx, 'AoD':AoD, 'AS_Rx':AS_Rx, 'AoA':AoA}
     return param_dict
+
+def free_space_path_loss(self,frequency,distance):
+    #The _power_ loss of the free space
+    #Distance in meter
+    c=299792458 #Speed of light, m/s
+    if distance==0:
+        loss=1
+    else:
+        loss=1/(4*np.pi*(distance)*frequency/c)**2
+    return loss
+
+def laplacian_pdf(sigma,theta):
+    #power angular spectrum
+    Q=1/(1-np.exp(-np.sqrt(2)*(theta[-1]-theta[0])))
+    #Q=1
+    PAS=Q*np.exp(-np.sqrt(2)*np.abs(theta)/sigma)/(np.sqrt(2)*sigma)
+    return PAS.reshape((1,-1))
     
 if __name__=="__main__":
     import sys
@@ -441,13 +501,14 @@ if __name__=="__main__":
     d=lambda2meter(np.array(range(4)),f)
     dictd=get_802_11n_channel_params('D')
     #print(dictd)
-    X=generate_corr_mat(d,f,sigma,AoA)
-    L=generate_los_mat(d,f,AoA)
-    K=0.5
-    P=1
-    dicta=get_802_11n_channel_params('A')
-    H1=generate_channel_tap(d,f,dicta)
-    chdict={'Rs':100e6, 'model':'C', 'antennas':4, 'f':f, 'd':d}
+    #arg={'Rxantennalocations': , 'frequency':, 'K':, 'tau':, 'pdb':, 'AS_Tx':, 'AoD':, 'AS_Rx':, 'AoA': } 
+    argdict={'Rxantennalocations': np.r_[0] , 'frequency': 1e9, 'K':0.5, 'tau':dictd['tau'], 'pdb':dictd['pdb'][0][0], 'AS_Tx':30, 'AoD':0, 'AS_Rx':45, 'AoA':AoA } 
+    #print(argdict)
+    #print(argdict['Rxantennalocations'])
+    X=generate_corr_mat(argdict)
+    L=generate_los_mat(argdict)
+    H1=generate_channel_tap(argdict)
+    chdict={'Rs':100e6, 'model':'C', 'frequency':f, 'Rxantennalocations':d}
     H1=generate_802_11n_channel(chdict)
     #print(X)
     #print(X.shape)
@@ -463,6 +524,16 @@ if __name__=="__main__":
     #print(H1)
     #print(H1[1,:])
     #print(H1.shape)
-    #s@H1.T
-    print(srx)
+    #print(srx)
+    ch=f2_channel()
+    ch.iptr_A.Value=s
+    ch.channeldict= { 'model': 'C', 'bandwidth':100e6, 'frequency':1e9}
+    ch.Rxantennalocations=np.r_[0, 0.3, 0.6]
+    ch.ch802_11n()
+    ch.run()
+    #print(ch.H)
+    #print(ch.H.shape)
+    #print(ch.iptr_A.Value)
+    print(ch._Z.Value)
+    print(ch._Z.Value.shape)
 
