@@ -1,7 +1,7 @@
 # f2_channel class 
 #Thechannel model in this module is based on 802.11n channel models decribed in
 # IEEE 802.11n-03/940r4 TGn Channel Models
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 17.10.2017 14:22
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 17.10.2017 16:13
 import sys
 sys.path.append ('/home/projects/fader/TheSDK/Entities/refptr/py')
 sys.path.append ('/home/projects/fader/TheSDK/Entities/thesdk/py')
@@ -227,7 +227,7 @@ def generate_channel_tap(*arg):
     #AoA is th angle of arrival in degrees
     #Add the receiver array at some point
     K=arg[0]['K']       #Rician factor
-    P=10**arg[0]['pdb']
+    P=10**(arg[0]['pdb']/10.0)
     matdict=arg[0] #we can pass the arguments as is
     X=generate_corr_mat(matdict)
     L=generate_los_mat(matdict)
