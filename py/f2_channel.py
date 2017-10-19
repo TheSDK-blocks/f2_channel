@@ -1,7 +1,7 @@
 # f2_channel class 
 #Thechannel model in this module is based on 802.11n channel models decribed in
 # IEEE 802.11n-03/940r4 TGn Channel Models
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 17.10.2017 16:13
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 18.10.2017 17:12
 import sys
 sys.path.append ('/home/projects/fader/TheSDK/Entities/refptr/py')
 sys.path.append ('/home/projects/fader/TheSDK/Entities/thesdk/py')
@@ -29,12 +29,13 @@ class f2_channel(thesdk):
         self.Users=2
         self.Rxantennalocations=np.r_[0]
         self.Channeldir='Uplink'
+        self.noisetemp=290
         #input pointer is a pointer to A matrix indexed as s(user,time, txantenna)
         #Channelis modeled as H(time,rxantenna, txantenna)
         #Thus, Srx is SH^T-> Srx(time,rxantenna)
         self.iptr_A = refptr();
         self.model='py';             #can be set externally, but is not propagated
-        self.channeldict= { 'model': 'lossless', 'bandwidth':100e6, 'distance':2 ,'frequency':self.frequency }
+        self.channeldict= { 'model': 'lossless', 'distance':2 }
         self._Z = refptr();
         self._classfile=__file__
         self.H=np.array([])
@@ -114,10 +115,8 @@ class f2_channel(thesdk):
     def ch802_11n(self):
         Rxantennalocations=self.Rxantennalocations.shape[0]
         txantennas=self.iptr_A.Value.shape[1]
-        channelmodel=self.channeldict['model']
-        f=self.channeldict['frequency']
         #param_dict={'K':K, 'tau':tau, 'pdb':pdb, 'AS_Tx':AS_Tx, 'AoD':AoD, 'AS_Rx':AS_Rx, 'AoA':AoA}
-        channel_dict={'Rs':self.Rs, 'model':channelmodel, 'frequency':self.frequency, 'Rxantennalocations':self.Rxantennalocations}
+        channel_dict={'Rs':self.Rs, 'model':self.channeldict['model'], 'frequency':self.frequency, 'Rxantennalocations':self.Rxantennalocations}
 
         #Users are in different locations, every user has a channel
         for i in range(self.Users):
@@ -136,7 +135,6 @@ class f2_channel(thesdk):
         channelmodel=self.channeldict['model']
         f=self.channeldict['frequency']
         #param_dict={'K':K, 'tau':tau, 'pdb':pdb, 'AS_Tx':AS_Tx, 'AoD':AoD, 'AS_Rx':AS_Rx, 'AoA':AoA}
-        #param_dict=get_802_11n_channel_params(channelmodel)
         channel_dict={'Rs':self.Rs, 'model':channelmodel, 'frequency':self.frequency, 'Rxantennalocations':self.Rxantennalocations}
         
         #Users are in different locations, every user has a channel
@@ -157,23 +155,34 @@ class f2_channel(thesdk):
         #How to handle this? 
         #BS receiver->user signals are combines before receiver antenna array
         #Mobile receiver->user signals are combined before the transmitter antenna array
-        for i in range(self.Users):
+        for i in range(self.Users):  
             t=channel_propagate(self.iptr_A.Value[i],self.H[i])
-            if self.Channeldir=='Downlink':
+            if self.Channeldir=='Downlink': #Every user receives a dedicated signal
                 if i==0:
                    shape=t.shape
                    srx=np.zeros((self.Users,shape[0],shape[1]),dtype='complex')
                    srx[i,:,:]=t
                 else:
                    srx[i,:,:]=t
-            if self.Channeldir=='Uplink':
+            if self.Channeldir=='Uplink': #BS Receives the sum of the users with different channels
                 if i==0:
                    shape=t.shape
                    srx=np.zeros((1,shape[0],shape[1]),dtype='complex')
                    srx[0,:,:]=t
                 else:
                    srx[0,:,:]=srx[0,:,:]+t
-        return srx
+
+        #Add noise
+        #    #noise power density in room temperature, 50 ohm load 
+        noise_power_density=4*con.k*self.noisetemp*50
+        #Bandwidth determined by sample frequency
+        noise_rms_voltage=np.sqrt(noise_power_density*self.Rs) 
+
+        #complex noise
+        noise_voltage=np.sqrt(0.5)*(np.random.normal(0,noise_rms_voltage,srx.shape)+1j*np.random.normal(0,noise_rms_voltage,srx.shape))
+        print(noise_voltage)
+
+        return srx+noise_voltage
 
 #Helper functions
 def generate_802_11n_channel(*arg): #{'Rs': 'model': 'Rxantennalocations': 'frequency': }
@@ -322,7 +331,6 @@ def lambda2meter(distlambda,f):
     return d
 
 def channel_propagate(signal,H):
-    #pass
     #Calculate the convolution of the 3D matrix filter
     #y(n)=SUM s(n-k)@H(k,:,:).T  
     convlen=signal.shape[0]+H.shape[0]-1
@@ -593,8 +601,112 @@ def get_802_11n_channel_params(model):
 
   #  Still missing model F
     elif model=='F':
-        print("Channel model F not yet implemented")
-        sys.exit(1)
+        tau = np.array([0,10,20,30,50,80,110,140,180,230,280,330,400,490,600,730,880,1050]) * 1e-9
+        K=np.zeros(tau.size) #K-factor for Line-of-sight
+        K[0]=6
+
+        pdb1 = np.array([-3.3,-3.6,-3.9,-4.2,-4.6,-5.3,-6.2,-7.1,-8.2,-9.5,-11.0,-12.5,-14.3,-16.7,-19.9],ndmin=2)
+        
+        pdb2 = np.array([-1.8,-2.8,-3.5,-4.4,-5.3,-7.4,-7.0,-10.3,-10.4,-13.8,-15.7,-19.9],ndmin=2)
+
+        pdb3 = np.array([-5.7,-6.7,-10.4,-9.6,-14.1,-12.7,-18.5],ndmin=2)
+
+        pdb4 = np.array([-8.8,-13.3,-18.7],ndmin=2)
+
+        pdb5 = np.array([-12.9,-14.2],ndmin=2)
+
+        pdb6 = np.array([-16.3,-21.2],ndmin=2)
+
+
+        AoA1 = 315.1*np.ones(pdb1.shape)
+        AoA1 = np.r_['1',AoA1,-1*np.inf*np.ones((1,3))]
+        
+        AoA2 = 180.4*np.ones(pdb2.shape)
+        AoA2 = np.r_['1',-1*np.inf*np.ones((1,4)),AoA2, -1*np.inf*np.ones((1,2))]
+
+        AoA3 = 74.7*np.ones(pdb3.shape)
+        AoA3 = np.r_['1',-1*np.inf*np.ones((1,8)),AoA3, -1*np.inf*np.ones((1,3))]
+
+        AoA4 = 251.5*np.ones(pdb4.shape)
+        AoA4 = np.r_['1',-1*np.inf*np.ones((1,12)),AoA4,-1*np.inf*np.ones((1,3)) ]
+        
+        AoA5 = 68.5*np.ones(pdb5.shape)
+        AoA5 = np.r_['1',-1*np.inf*np.ones((1,14)),AoA5,-1*np.inf*np.ones((1,2))]
+
+        AoA6 = 246.2*np.ones(pdb6.shape)
+        AoA6 = np.r_['1',-1*np.inf*np.ones((1,16)),AoA6]
+        
+        AoA = np.r_['0',AoA1, AoA2, AoA3, AoA4, AoA5, AoA6]
+
+        AS_Rx1 = 48.0*np.ones(pdb1.shape)
+        AS_Rx1 = np.r_['1',AS_Rx1,-1*np.inf*np.ones((1,3))]
+        
+        AS_Rx2 = 55.0*np.ones(pdb2.shape)
+        AS_Rx2 = np.r_['1',-1*np.inf*np.ones((1,4)),AS_Rx2,-1*np.inf*np.ones((1,2))]
+
+        AS_Rx3 = 42.0*np.ones(pdb3.shape)
+        AS_Rx3 = np.r_['1',-1*np.inf*np.ones((1,8)),AS_Rx3,-1*np.inf*np.ones((1,3))]
+
+        AS_Rx4 = 28.6*np.ones(pdb4.shape)
+        AS_Rx4 = np.r_['1',-1*np.inf*np.ones((1,12)),AS_Rx4,-1*np.inf*np.ones((1,3))]
+                                                                                    
+        AS_Rx5 = 30.7*np.ones(pdb5.shape)                                           
+        AS_Rx5 = np.r_['1',-1*np.inf*np.ones((1,14)),AS_Rx5,-1*np.inf*np.ones((1,2))]
+
+        AS_Rx6 = 38.2*np.ones(pdb6.shape)
+        AS_Rx6 = np.r_['1',-1*np.inf*np.ones((1,16)),AS_Rx6]
+
+        AS_Rx = np.r_['0',AS_Rx1, AS_Rx2, AS_Rx3, AS_Rx4, AS_Rx5, AS_Rx6]
+
+        AoD1 = 56.2*np.ones(pdb1.shape)
+        AoD1 = np.r_['1',AoD1,-1*np.inf*np.ones((1,3))]
+
+        AoD2 = 183.7*np.ones(pdb2.shape)
+        AoD2 = np.r_['1',-1*np.inf*np.ones((1,4)),AoD2,-1*np.inf*np.ones((1,2))]
+        
+        AoD3 = 153.0*np.ones(pdb3.shape)
+        AoD3 = np.r_['1',-1*np.inf*np.ones((1,8)),AoD3,-1*np.inf*np.ones((1,3))]
+
+        AoD4 = 112.5*np.ones(pdb4.shape)
+        AoD4 = np.r_['1',-1*np.inf*np.ones((1,12)),AoD4,-1*np.inf*np.ones((1,3))]
+                                                                                
+        AoD5 = 291.0*np.ones(pdb5.shape)                                        
+        AoD5 = np.r_['1',-1*np.inf*np.ones((1,14)),AoD5,-1*np.inf*np.ones((1,2))]
+        
+        AoD6 = 62.3*np.ones(pdb6.shape)
+        AoD6 = np.r_['1',-1*np.inf*np.ones((1,16)),AoD6]
+
+        AoD = np.r_['0',AoD1, AoD2, AoD3, AoD4, AoD5, AoD6]
+
+        AS_Tx1 = 41.6*np.ones(pdb1.shape)
+        AS_Tx1 = np.r_['1',AS_Tx1,-1*np.inf*np.ones((1,3))]
+        
+        AS_Tx2 = 55.2*np.ones(pdb2.shape)
+        AS_Tx2 = np.r_['1',-1*np.inf*np.ones((1,4)),AS_Tx2,-1*np.inf*np.ones((1,2))]
+        
+        AS_Tx3 = 47.4*np.ones(pdb3.shape)
+        AS_Tx3 = np.r_['1',-1*np.inf*np.ones((1,8)),AS_Tx3,-1*np.inf*np.ones((1,3))]
+        
+        AS_Tx4 = 27.2*np.ones(pdb4.shape)
+        AS_Tx4 = np.r_['1',-1*np.inf*np.ones((1,12)),AS_Tx4,-1*np.inf*np.ones((1,3))]
+                                                                                    
+        AS_Tx5 = 33.0*np.ones(pdb5.shape)                                           
+        AS_Tx5 = np.r_['1',-1*np.inf*np.ones((1,14)),AS_Tx5,-1*np.inf*np.ones((1,2))]
+
+        AS_Tx6 = 38.0*np.ones(pdb6.shape)
+        AS_Tx6 = np.r_['1',-1*np.inf*np.ones((1,16)),AS_Tx6]
+        
+        AS_Tx = np.r_['0',AS_Tx1, AS_Tx2, AS_Tx3, AS_Tx4,AS_Tx5,AS_Tx6]
+
+        #Reshape pdb's
+        pdb1 = np.r_['1', pdb1,-1*np.inf*np.ones((1,3))]
+        pdb2 = np.r_['1',-1*np.inf*np.ones((1,4)),pdb2,-1*np.inf*np.ones((1,2))]
+        pdb3 = np.r_['1',-1*np.inf*np.ones((1,8)),pdb3,-1*np.inf*np.ones((1,3))]
+        pdb4 = np.r_['1',-1*np.inf*np.ones((1,12)),pdb4,-1*np.inf*np.ones((1,3))]
+        pdb5 = np.r_['1',-1*np.inf*np.ones((1,14)),pdb5,-1*np.inf*np.ones((1,2))]
+        pdb6 = np.r_['1',-1*np.inf*np.ones((1,16)),pdb6]
+
+        pdb = np.r_['0',pdb1, pdb2, pdb3, pdb4,pdb5,pdb6]
 
 
     param_dict={'K':K, 'tau':tau, 'pdb':pdb, 'AS_Tx':AS_Tx, 'AoD':AoD, 'AS_Rx':AS_Rx, 'AoA':AoA}
@@ -650,14 +762,14 @@ if __name__=="__main__":
     #print(srx)
     ch=f2_channel()
     ch.iptr_A.Value=s
-    ch.channeldict= { 'model': 'C', 'bandwidth':100e6, 'frequency':1e9}
+    ch.channeldict= { 'model': 'C' }
     ch.Rxantennalocations=np.r_[0, 0.3, 0.6]
     ch.ch802_11n()
     ch.run()
     print(ch._Z.Value)
     print(ch._Z.Value.shape)
     ch.Rxantennalocations=np.r_[0, 0.3, 0.6]
-    ch.channeldict= { 'model': 'lossless', 'bandwidth':100e6, 'frequency':1e9}
+    ch.channeldict= { 'model': 'lossless' }
     ch.run()
     #print(ch.H)
     #print(ch.H.shape)
