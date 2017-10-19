@@ -1,7 +1,7 @@
 # f2_channel class 
-#Thechannel model in this module is based on 802.11n channel models decribed in
+# The channel model in this module is based on 802.11n channel models decribed in
 # IEEE 802.11n-03/940r4 TGn Channel Models
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 18.10.2017 17:12
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 18.10.2017 18:23
 import sys
 sys.path.append ('/home/projects/fader/TheSDK/Entities/refptr/py')
 sys.path.append ('/home/projects/fader/TheSDK/Entities/thesdk/py')
@@ -116,7 +116,7 @@ class f2_channel(thesdk):
         Rxantennalocations=self.Rxantennalocations.shape[0]
         txantennas=self.iptr_A.Value.shape[1]
         #param_dict={'K':K, 'tau':tau, 'pdb':pdb, 'AS_Tx':AS_Tx, 'AoD':AoD, 'AS_Rx':AS_Rx, 'AoA':AoA}
-        channel_dict={'Rs':self.Rs, 'model':self.channeldict['model'], 'frequency':self.frequency, 'Rxantennalocations':self.Rxantennalocations}
+        channel_dict={'Rs':self.Rs, 'model':self.channeldict['model'], 'frequency':self.frequency, 'Rxantennalocations':self.Rxantennalocations, 'distance':self.channeldict['distance']}
 
         #Users are in different locations, every user has a channel
         for i in range(self.Users):
@@ -180,7 +180,7 @@ class f2_channel(thesdk):
 
         #complex noise
         noise_voltage=np.sqrt(0.5)*(np.random.normal(0,noise_rms_voltage,srx.shape)+1j*np.random.normal(0,noise_rms_voltage,srx.shape))
-        print(noise_voltage)
+        #print(noise_voltage)
 
         return srx+noise_voltage
 
@@ -190,6 +190,8 @@ def generate_802_11n_channel(*arg): #{'Rs': 'model': 'Rxantennalocations': 'freq
     model=arg[0]['model']
     Rxantennalocations=arg[0]['Rxantennalocations'] 
     frequency=arg[0]['frequency'] 
+    distance=arg[0]['distance'] 
+
     antennasrx=Rxantennalocations.shape[0] #antennas of the receiver, currently only 1 antenna at the tx
     antennastx=1
     #H matrix structure receiver antennas on rows, tx antennas on columns
@@ -224,7 +226,8 @@ def generate_802_11n_channel(*arg): #{'Rs': 'model': 'Rxantennalocations': 'freq
             #This is really fucked up way. Why on earth th column vector H[:,x] does not remain as a column vector.
             shape=H[tauind[tap_index],:,:].shape
             H[tauind[tap_index],:,:]=H[tauind[tap_index],:,:]+generate_channel_tap(tapdict).reshape(shape)
-    return H
+    Powerloss=free_space_path_loss(distance,frequency,channel_param_dict['lossdict'])
+    return H/np.sqrt(Powerloss)
 
 def generate_channel_tap(*arg):
     #arg={'Rxantennalocations': , 'frequency':, 'K':, 'tau':, 'pdb':, 'AS_Tx':, 'AoD':, 'AS_Rx':, 'AoA': } 
@@ -348,11 +351,14 @@ def channel_propagate(signal,H):
 
 
 def get_802_11n_channel_params(model):
+# See the channel and loss model in IEEE 802.11n-03/940r4 TGn Channel Models
 # This function hard-codes the WLAN 802.11n channel model parameters and
 # returns the ones corresponding to the desired channel model. 
 #param_dict={'K':K, 'tau':tau, 'pdb':pdb, 'AS_Tx':AS_Tx, 'AoD':AoD, 'AS_Rx':AS_Rx, 'AoA':AoA}
+
 #The IS a more clever way of doing these but at least they are done now.
     if model=='A':
+        lossdict={'dbp':5,  's1':2, 's2': 3.5, 'f1':3, 'f2':4}
         tau = np.array([0])
         K=np.zeros(tau.size) #K-factor for Line-of-sight
         pdb = np.array([0],ndmin=2)
@@ -362,7 +368,7 @@ def get_802_11n_channel_params(model):
         AS_Tx = np.array([40],ndmin=2)
         
     elif model=='B':
-        
+        lossdict={'dbp':5,  's1':2, 's2': 3.5, 'f1':3, 'f2':4}
         tau = np.array([0,10,20,30,40,50,60,70,80]) * 1e-9 # Path delays, in seconds
         K=np.zeros(tau.size) #K-factor for Line-of-sight
         
@@ -413,7 +419,7 @@ def get_802_11n_channel_params(model):
         pdb = np.r_['0',pdb1,pdb2]
        
     elif model=='C':
-        
+        lossdict={'dbp':5,  's1':2, 's2': 3.5, 'f1':3, 'f2':5}
         tau = np.array([0,10,20,30,40,50,60,70,80,90,110,140,170,200]) * 1e-9
         K=np.zeros(tau.size) #K-factor for Line-of-sight
         
@@ -459,7 +465,7 @@ def get_802_11n_channel_params(model):
         pdb = np.r_['0',pdb1, pdb2]
         
     elif model=='D':
-            
+        lossdict={'dbp':10, 's1':2, 's2': 3.5, 'f1':3, 'f2':5}
         tau = np.array([0,10,20,30,40,50,60,70,80,90,110,140,170,200,240,290,340,390]) * 1e-9
         K=np.zeros(tau.size) #K-factor for Line-of-sight
         K[0]=3
@@ -521,7 +527,7 @@ def get_802_11n_channel_params(model):
         pdb = np.r_['0',pdb1,pdb2,pdb3] # path loss vector
         
     elif model=='E':
-        
+        lossdict={'dbp':20, 's1':2, 's2': 3.5, 'f1':3, 'f2':6}
         tau = np.array([0,10,20,30,50,80,110,140,180,230,280,330,380,430,490,560,640,730]) * 1e-9
         K=np.zeros(tau.size) #K-factor for Line-of-sight
         K[0]=6
@@ -601,6 +607,7 @@ def get_802_11n_channel_params(model):
 
   #  Still missing model F
     elif model=='F':
+        lossdict={'dbp':30, 's1':2, 's2': 3.5, 'f1':3, 'f2':6}
         tau = np.array([0,10,20,30,50,80,110,140,180,230,280,330,400,490,600,730,880,1050]) * 1e-9
         K=np.zeros(tau.size) #K-factor for Line-of-sight
         K[0]=6
@@ -709,17 +716,20 @@ def get_802_11n_channel_params(model):
         pdb = np.r_['0',pdb1, pdb2, pdb3, pdb4,pdb5,pdb6]
 
 
-    param_dict={'K':K, 'tau':tau, 'pdb':pdb, 'AS_Tx':AS_Tx, 'AoD':AoD, 'AS_Rx':AS_Rx, 'AoA':AoA}
+    param_dict={'K':K, 'tau':tau, 'pdb':pdb, 'AS_Tx':AS_Tx, 'AoD':AoD, 'AS_Rx':AS_Rx, 'AoA':AoA, 'lossdict':lossdict }
     return param_dict
 
-def free_space_path_loss(self,frequency,distance):
+def free_space_path_loss(distance,frequency,lossdict):
     #The _power_ loss of the free space
-    #Distance in meter
-    c=299792458 #Speed of light, m/s
+    #Distance in meters
     if distance==0:
         loss=1
-    else:
-        loss=1/(4*np.pi*(distance)*frequency/c)**2
+    elif distance < lossdict['dbp']:
+        loss=(4*np.pi*frequency/con.c*distance**lossdict['s1'])*(10**np.random.normal(0,lossdict['f1'],(1,1))/10)
+    elif distance >=lossdict['dbp']:
+        loss=(4*np.pi*frequency/con.c*lossdict['dbp']**lossdict['s1'])*(distance/lossdict['dbp'])**lossdict['s2']
+        loss=loss*(10**(np.random.normal(0,lossdict['f2'],(1,1))/10))
+    print("Path loss is %s dB" %( 10*np.log10(loss) ))
     return loss
 
 def laplacian_pdf(sigma,theta):
