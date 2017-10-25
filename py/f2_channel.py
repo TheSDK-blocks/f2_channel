@@ -1,7 +1,7 @@
 # f2_channel class 
 # The channel model in this module is based on 802.11n channel models decribed in
 # IEEE 802.11n-03/940r4 TGn Channel Models
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 18.10.2017 18:23
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 25.10.2017 12:30
 import sys
 sys.path.append ('/home/projects/fader/TheSDK/Entities/refptr/py')
 sys.path.append ('/home/projects/fader/TheSDK/Entities/thesdk/py')
@@ -30,8 +30,8 @@ class f2_channel(thesdk):
         self.Rxantennalocations=np.r_[0]
         self.Channeldir='Uplink'
         self.noisetemp=290
-        #input pointer is a pointer to A matrix indexed as s(user,time, txantenna)
-        #Channelis modeled as H(time,rxantenna, txantenna)
+        #Input pointer is a pointer to A matrix indexed as s(user,time, txantenna)
+        #Channel is modeled as H(time,rxantenna, txantenna)
         #Thus, Srx is SH^T-> Srx(time,rxantenna)
         self.iptr_A = refptr();
         self.model='py';             #can be set externally, but is not propagated
@@ -78,39 +78,6 @@ class f2_channel(thesdk):
             self._Z.Value=out
         else: 
             print("ERROR: Only Python model currently available")
-    
-
-    #    if self.model=='py':
-    #        if self.channeldict['model'] == 'buffer':
-    #            out=self.buffer()
-
-    #        if self.channeldict['model'] == 'awgn':
-    #            out=self.awgn()
-
-    #        if par:
-    #            queue.put(out)
-    #        self._Z.Value=out
-    #    else: 
-    #        print("ERROR: Only Python model currently available")
-    #
-    #def buffer(self):
-    #    loss=np.sqrt(self.free_space_path_loss(self.channeldict['frequency'],self.channeldict['distance']))
-    #    #print(loss)
-    #    out=np.array(loss*self.iptr_A.Value)
-    #    #print(out)
-    #    return out
-
-    #def awgn(self):
-    #    kb=1.3806485279e-23
-    #    #noise power density in room temperature, 50 ohm load 
-    #    noise_power_density=4*kb*290*50
-    #    noise_rms_voltage=np.sqrt(noise_power_density*self.channeldict['bandwidth'])
-    #    #complex noise
-    #    noise_voltage=np.sqrt(0.5)*(np.random.normal(0,noise_rms_voltage,self.iptr_A.Value.shape)+1j*np.random.normal(0,noise_rms_voltage,self.iptr_A.Value.shape))
-    #    #Add noise
-    #    loss=np.sqrt(self.free_space_path_loss(self.channeldict['frequency'],self.channeldict['distance']))
-    #    out=np.array(loss*self.iptr_A.Value+noise_voltage)
-    #    return out
 
     def ch802_11n(self):
         Rxantennalocations=self.Rxantennalocations.shape[0]
@@ -153,7 +120,7 @@ class f2_channel(thesdk):
     def propagate(self):
         #Its is up to transmitter or receiver where the user channels are merged and how
         #How to handle this? 
-        #BS receiver->user signals are combines before receiver antenna array
+        #BS receiver->user signals are combined before receiver antenna array
         #Mobile receiver->user signals are combined before the transmitter antenna array
         for i in range(self.Users):  
             t=channel_propagate(self.iptr_A.Value[i],self.H[i])
