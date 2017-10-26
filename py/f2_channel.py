@@ -1,7 +1,7 @@
 # f2_channel class 
 # The channel model in this module is based on 802.11n channel models decribed in
 # IEEE 802.11n-03/940r4 TGn Channel Models
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 25.10.2017 12:30
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 25.10.2017 18:08
 import sys
 sys.path.append ('/home/projects/fader/TheSDK/Entities/refptr/py')
 sys.path.append ('/home/projects/fader/TheSDK/Entities/thesdk/py')
@@ -144,7 +144,7 @@ class f2_channel(thesdk):
         noise_power_density=4*con.k*self.noisetemp*50
         #Bandwidth determined by sample frequency
         noise_rms_voltage=np.sqrt(noise_power_density*self.Rs) 
-
+        print("%s: Adding %f uV RMS  noise corresponding to %f dBm power to 50 ohm resistor over bandwidth of %f MHz" %(self.__class__.__name__, noise_rms_voltage/1e-6, 10*np.log10(noise_rms_voltage**2/(50*1e-3)), self.Rs/1e6))
         #complex noise
         noise_voltage=np.sqrt(0.5)*(np.random.normal(0,noise_rms_voltage,srx.shape)+1j*np.random.normal(0,noise_rms_voltage,srx.shape))
         #print(noise_voltage)
@@ -572,7 +572,6 @@ def get_802_11n_channel_params(model):
 
         pdb = np.r_['0',pdb1, pdb2, pdb3, pdb4]
 
-  #  Still missing model F
     elif model=='F':
         lossdict={'dbp':30, 's1':2, 's2': 3.5, 'f1':3, 'f2':6}
         tau = np.array([0,10,20,30,50,80,110,140,180,230,280,330,400,490,600,730,880,1050]) * 1e-9
