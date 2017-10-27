@@ -1,7 +1,7 @@
 # f2_channel class 
 # The channel model in this module is based on 802.11n channel models decribed in
 # IEEE 802.11n-03/940r4 TGn Channel Models
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 25.10.2017 18:08
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 26.10.2017 16:51
 import sys
 sys.path.append ('/home/projects/fader/TheSDK/Entities/refptr/py')
 sys.path.append ('/home/projects/fader/TheSDK/Entities/thesdk/py')
@@ -60,7 +60,7 @@ class f2_channel(thesdk):
         #BS receiver->user signals are combines before receiver antenna array
         #Mobile receiver->user signals are combines before the transmitter antenna array
         if self.model=='py':
-            print("The channel model is %s " %(self.channeldict['model']))
+            self.print_log({'type':'I', 'msg':"The channel model is %s " %(self.channeldict['model'])})
             
             #test for lossless model
             if self.channeldict['model'] == 'lossless':
@@ -87,7 +87,7 @@ class f2_channel(thesdk):
 
         #Users are in different locations, every user has a channel
         for i in range(self.Users):
-            t=generate_802_11n_channel(channel_dict)
+            t=self.generate_802_11n_channel(channel_dict)
             if i==0:
                shape=t.shape
                H=np.zeros((self.Users,shape[0],shape[1],shape[2]),dtype='complex')
@@ -144,57 +144,74 @@ class f2_channel(thesdk):
         noise_power_density=4*con.k*self.noisetemp*50
         #Bandwidth determined by sample frequency
         noise_rms_voltage=np.sqrt(noise_power_density*self.Rs) 
-        print("%s: Adding %f uV RMS  noise corresponding to %f dBm power to 50 ohm resistor over bandwidth of %f MHz" %(self.__class__.__name__, noise_rms_voltage/1e-6, 10*np.log10(noise_rms_voltage**2/(50*1e-3)), self.Rs/1e6))
+        msg="Adding %f uV RMS  noise corresponding to %f dBm power to 50 ohm resistor over bandwidth of %f MHz" %(noise_rms_voltage/1e-6, 10*np.log10(noise_rms_voltage**2/(50*1e-3)), self.Rs/1e6)
+        self.print_log({'type':'I', 'msg':msg})
         #complex noise
         noise_voltage=np.sqrt(0.5)*(np.random.normal(0,noise_rms_voltage,srx.shape)+1j*np.random.normal(0,noise_rms_voltage,srx.shape))
         #print(noise_voltage)
 
         return srx+noise_voltage
 
+    def generate_802_11n_channel(self,*arg): #{'Rs': 'model': 'Rxantennalocations': 'frequency': }
+        Rs=arg[0]['Rs']   #Sampling rate
+        model=arg[0]['model']
+        Rxantennalocations=arg[0]['Rxantennalocations'] 
+        frequency=arg[0]['frequency'] 
+        distance=arg[0]['distance'] 
+
+        antennasrx=Rxantennalocations.shape[0] #antennas of the receiver, currently only 1 antenna at the tx
+        antennastx=1
+        #H matrix structure receiver antennas on rows, tx antennas on columns
+        channel_param_dict=get_802_11n_channel_params(model) #param_dict={'K':K, 'tau':tau, 'pdb':pdb, 'AS_Tx':AS_Tx, 'AoD':AoD, 'AS_Rx':AS_Rx, 'AoA':AoA}
+
+        tau=channel_param_dict['tau']
+        tauind=np.round(tau*Rs).astype('int')
+        chanlen=tauind[-1]+1 #Lenght of the channel in samples at Rs
+
+        #Create a channel fro a single transmitter to a single receiver
+        #Currently the tranmitter has 1 antenna, receiver has Multiple antennae
+        H=np.zeros((chanlen,antennasrx,antennastx),dtype='complex')
+        
+        
+        #Here we can generate the random Angles of Arrival.
+        #Let Angle of departure be o degrees by, and angle of arrival be random
+        channel_param_dict['AoD']=np.zeros(channel_param_dict['AoD'].shape)
+        shape=channel_param_dict['AoA'].shape
+        channel_param_dict['AoA']=np.random.rand(shape[0],shape[1])*360
+
+        #For each channel there are multiple clusters of taps
+        for cluster_index in range(channel_param_dict['AoA'].shape[0]):
+            #taps inside the cluster
+            for tap_index in range(tau.shape[0]):
+                tapdict={'Rxantennalocations': Rxantennalocations, 'frequency': frequency, 'K':channel_param_dict['K'][tap_index], 
+                        'tau':channel_param_dict['tau'][tap_index], 'pdb':channel_param_dict['pdb'][cluster_index][tap_index], 
+                         'AS_Tx':channel_param_dict['AS_Tx'][cluster_index][tap_index], 'AoD':channel_param_dict['AoD'][cluster_index][tap_index], 
+                        'AS_Rx':channel_param_dict['AS_Rx'][cluster_index][tap_index], 'AoA':channel_param_dict['AoA'][cluster_index][tap_index] } 
+                #Arguments for generate_channel
+                #distance array, frequency, {'AS_RX': 'AoA': 'K': 'pdb': }
+
+                #This is really fucked up way. Why on earth th column vector H[:,x] does not remain as a column vector.
+                shape=H[tauind[tap_index],:,:].shape
+                H[tauind[tap_index],:,:]=H[tauind[tap_index],:,:]+generate_channel_tap(tapdict).reshape(shape)
+        Powerloss=self.free_space_path_loss(distance,frequency,channel_param_dict['lossdict'])
+        return H/np.sqrt(Powerloss)
+
+    #Loss model
+    def free_space_path_loss(self,distance,frequency,lossdict):
+        #The _power_ loss of the free space
+        #Distance in meters
+        if distance==0:
+            loss=1
+        elif distance < lossdict['dbp']:
+            loss=(4*np.pi*frequency/con.c*distance**lossdict['s1'])*(10**np.random.normal(0,lossdict['f1'],(1,1))/10)
+        elif distance >=lossdict['dbp']:
+            loss=(4*np.pi*frequency/con.c*lossdict['dbp']**lossdict['s1'])*(distance/lossdict['dbp'])**lossdict['s2']
+            loss=loss*(10**(np.random.normal(0,lossdict['f2'],(1,1))/10))
+        self.print_log({'type':'I','msg':"Path loss is %s dB" %( 10*np.log10(loss)) })
+        return loss
+
+
 #Helper functions
-def generate_802_11n_channel(*arg): #{'Rs': 'model': 'Rxantennalocations': 'frequency': }
-    Rs=arg[0]['Rs']   #Sampling rate
-    model=arg[0]['model']
-    Rxantennalocations=arg[0]['Rxantennalocations'] 
-    frequency=arg[0]['frequency'] 
-    distance=arg[0]['distance'] 
-
-    antennasrx=Rxantennalocations.shape[0] #antennas of the receiver, currently only 1 antenna at the tx
-    antennastx=1
-    #H matrix structure receiver antennas on rows, tx antennas on columns
-    channel_param_dict=get_802_11n_channel_params(model) #param_dict={'K':K, 'tau':tau, 'pdb':pdb, 'AS_Tx':AS_Tx, 'AoD':AoD, 'AS_Rx':AS_Rx, 'AoA':AoA}
-
-    tau=channel_param_dict['tau']
-    tauind=np.round(tau*Rs).astype('int')
-    chanlen=tauind[-1]+1 #Lenght of the channel in samples at Rs
-
-    #Create a channel fro a single transmitter to a single receiver
-    #Currently the tranmitter has 1 antenna, receiver has Multiple antennae
-    H=np.zeros((chanlen,antennasrx,antennastx),dtype='complex')
-    
-    
-    #Here we can generate the random Angles of Arrival.
-    #Let Angle of departure be o degrees by, and angle of arrival be random
-    channel_param_dict['AoD']=np.zeros(channel_param_dict['AoD'].shape)
-    shape=channel_param_dict['AoA'].shape
-    channel_param_dict['AoA']=np.random.rand(shape[0],shape[1])*360
-
-    #For each channel there are multiple clusters of taps
-    for cluster_index in range(channel_param_dict['AoA'].shape[0]):
-        #taps inside the cluster
-        for tap_index in range(tau.shape[0]):
-            tapdict={'Rxantennalocations': Rxantennalocations, 'frequency': frequency, 'K':channel_param_dict['K'][tap_index], 
-                    'tau':channel_param_dict['tau'][tap_index], 'pdb':channel_param_dict['pdb'][cluster_index][tap_index], 
-                     'AS_Tx':channel_param_dict['AS_Tx'][cluster_index][tap_index], 'AoD':channel_param_dict['AoD'][cluster_index][tap_index], 
-                    'AS_Rx':channel_param_dict['AS_Rx'][cluster_index][tap_index], 'AoA':channel_param_dict['AoA'][cluster_index][tap_index] } 
-            #Arguments for generate_channel
-            #distance array, frequency, {'AS_RX': 'AoA': 'K': 'pdb': }
-
-            #This is really fucked up way. Why on earth th column vector H[:,x] does not remain as a column vector.
-            shape=H[tauind[tap_index],:,:].shape
-            H[tauind[tap_index],:,:]=H[tauind[tap_index],:,:]+generate_channel_tap(tapdict).reshape(shape)
-    Powerloss=free_space_path_loss(distance,frequency,channel_param_dict['lossdict'])
-    return H/np.sqrt(Powerloss)
 
 def generate_channel_tap(*arg):
     #arg={'Rxantennalocations': , 'frequency':, 'K':, 'tau':, 'pdb':, 'AS_Tx':, 'AoD':, 'AS_Rx':, 'AoA': } 
@@ -685,18 +702,6 @@ def get_802_11n_channel_params(model):
     param_dict={'K':K, 'tau':tau, 'pdb':pdb, 'AS_Tx':AS_Tx, 'AoD':AoD, 'AS_Rx':AS_Rx, 'AoA':AoA, 'lossdict':lossdict }
     return param_dict
 
-def free_space_path_loss(distance,frequency,lossdict):
-    #The _power_ loss of the free space
-    #Distance in meters
-    if distance==0:
-        loss=1
-    elif distance < lossdict['dbp']:
-        loss=(4*np.pi*frequency/con.c*distance**lossdict['s1'])*(10**np.random.normal(0,lossdict['f1'],(1,1))/10)
-    elif distance >=lossdict['dbp']:
-        loss=(4*np.pi*frequency/con.c*lossdict['dbp']**lossdict['s1'])*(distance/lossdict['dbp'])**lossdict['s2']
-        loss=loss*(10**(np.random.normal(0,lossdict['f2'],(1,1))/10))
-    print("Path loss is %s dB" %( 10*np.log10(loss) ))
-    return loss
 
 def laplacian_pdf(sigma,theta):
     #power angular spectrum
