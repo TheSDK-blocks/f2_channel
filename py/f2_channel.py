@@ -1,7 +1,7 @@
 # f2_channel class 
 # The channel model in this module is based on 802.11n channel models decribed in
 # IEEE 802.11n-03/940r4 TGn Channel Models
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 26.10.2017 16:51
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 28.10.2017 07:16
 import sys
 sys.path.append ('/home/projects/fader/TheSDK/Entities/refptr/py')
 sys.path.append ('/home/projects/fader/TheSDK/Entities/thesdk/py')
@@ -73,7 +73,6 @@ class f2_channel(thesdk):
 
             if par:
                 queue.put(out)
-
     
             self._Z.Value=out
         else: 
@@ -142,14 +141,14 @@ class f2_channel(thesdk):
         #Add noise
         #    #noise power density in room temperature, 50 ohm load 
         noise_power_density=4*con.k*self.noisetemp*50
+        
         #Bandwidth determined by sample frequency
         noise_rms_voltage=np.sqrt(noise_power_density*self.Rs) 
         msg="Adding %f uV RMS  noise corresponding to %f dBm power to 50 ohm resistor over bandwidth of %f MHz" %(noise_rms_voltage/1e-6, 10*np.log10(noise_rms_voltage**2/(50*1e-3)), self.Rs/1e6)
         self.print_log({'type':'I', 'msg':msg})
+        
         #complex noise
         noise_voltage=np.sqrt(0.5)*(np.random.normal(0,noise_rms_voltage,srx.shape)+1j*np.random.normal(0,noise_rms_voltage,srx.shape))
-        #print(noise_voltage)
-
         return srx+noise_voltage
 
     def generate_802_11n_channel(self,*arg): #{'Rs': 'model': 'Rxantennalocations': 'frequency': }
@@ -194,7 +193,11 @@ class f2_channel(thesdk):
                 shape=H[tauind[tap_index],:,:].shape
                 H[tauind[tap_index],:,:]=H[tauind[tap_index],:,:]+generate_channel_tap(tapdict).reshape(shape)
         Powerloss=self.free_space_path_loss(distance,frequency,channel_param_dict['lossdict'])
-        return H/np.sqrt(Powerloss)
+        Powerscale=np.sqrt(sum(sum(10**(channel_param_dict['pdb']/10))))
+        
+        
+        self.print_log({'type':'I', 'msg': "Scaling power with %s" %(Powerscale)})
+        return H/(np.sqrt(Powerloss)*Powerscale)
 
     #Loss model
     def free_space_path_loss(self,distance,frequency,lossdict):
