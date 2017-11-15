@@ -66,6 +66,7 @@ class f2_channel(thesdk):
             if self.channeldict['model'] == 'lossless':
                 self.lossless()
                 out=self.propagate()
+                #print(np.max(np.abs(self.iptr_A.Value-out)))
             #Test for 802_11n models
             if any(map(lambda x: x== self.channeldict['model'],  ['A', 'B', 'C', 'D', 'E', 'F'])):
                 self.ch802_11n()
