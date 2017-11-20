@@ -1,7 +1,7 @@
 # f2_channel class 
 # The channel model in this module is based on 802.11n channel models decribed in
 # IEEE 802.11n-03/940r4 TGn Channel Models
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 14.11.2017 19:32
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 20.11.2017 15:38
 import sys
 sys.path.append ('/home/projects/fader/TheSDK/Entities/refptr/py')
 sys.path.append ('/home/projects/fader/TheSDK/Entities/thesdk/py')
@@ -23,7 +23,7 @@ from thesdk import *
 
 class f2_channel(thesdk):
     def __init__(self,*arg): 
-        self.proplist = [ 'Rs', 'channeldir', 'Users', 'Rxantennalocations', 'frequency', 'channeldict' ];    #properties that can be propagated from parent
+        self.proplist = [ 'Rs', 'channeldir', 'Users', 'Rxantennalocations', 'frequency', 'channeldict', 'noisetemp' ];    #properties that can be propagated from parent
         self.Rs = 100e6; # sampling frequency
         self.frequency=1e9
         self.Users=2
@@ -43,7 +43,7 @@ class f2_channel(thesdk):
             parent=arg[0]
             self.copy_propval(parent,self.proplist)
             self.parent =parent;
-
+        self.init()
     def init(self):
         pass
 
@@ -66,16 +66,18 @@ class f2_channel(thesdk):
             if self.channeldict['model'] == 'lossless':
                 self.lossless()
                 out=self.propagate()
-                #print(np.max(np.abs(self.iptr_A.Value-out)))
+
             #Test for 802_11n models
             if any(map(lambda x: x== self.channeldict['model'],  ['A', 'B', 'C', 'D', 'E', 'F'])):
-                self.ch802_11n()
-                out=self.propagate()
-
-            if par:
-                queue.put(out)
-    
-            self._Z.Value=out
+                if self.Rs < 100e6:
+                    self.print_log({'type':'F', 'msg': "Minimum sample frequency of 100Ms/S required for IEEE 802.11n channel models"})
+                else:
+                    self.ch802_11n()
+                    out=self.propagate()
+                    if par:
+                        queue.put(out)
+        
+                    self._Z.Value=out
         else: 
             print("ERROR: Only Python model currently available")
 
