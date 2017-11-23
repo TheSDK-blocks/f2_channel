@@ -1,7 +1,7 @@
 # f2_channel class 
 # The channel model in this module is based on 802.11n channel models decribed in
 # IEEE 802.11n-03/940r4 TGn Channel Models
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 20.11.2017 15:38
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 22.11.2017 11:30
 import sys
 sys.path.append ('/home/projects/fader/TheSDK/Entities/refptr/py')
 sys.path.append ('/home/projects/fader/TheSDK/Entities/thesdk/py')
@@ -66,6 +66,10 @@ class f2_channel(thesdk):
             if self.channeldict['model'] == 'lossless':
                 self.lossless()
                 out=self.propagate()
+                if par:
+                    queue.put(out)
+    
+                self._Z.Value=out
 
             #Test for 802_11n models
             if any(map(lambda x: x== self.channeldict['model'],  ['A', 'B', 'C', 'D', 'E', 'F'])):
