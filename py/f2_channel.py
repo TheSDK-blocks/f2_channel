@@ -1,7 +1,7 @@
 # f2_channel class 
 # The channel model in this module is based on 802.11n channel models decribed in
 # IEEE 802.11n-03/940r4 TGn Channel Models
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 22.11.2017 11:30
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 28.11.2017 16:17
 import sys
 sys.path.append ('/home/projects/fader/TheSDK/Entities/refptr/py')
 sys.path.append ('/home/projects/fader/TheSDK/Entities/thesdk/py')
@@ -39,6 +39,7 @@ class f2_channel(thesdk):
         self._Z = refptr();
         self._classfile=__file__
         self.H=np.array([])
+        self.DEBUG= False
         if len(arg)>=1:
             parent=arg[0]
             self.copy_propval(parent,self.proplist)
@@ -183,7 +184,10 @@ class f2_channel(thesdk):
         #Let Angle of departure be o degrees by, and angle of arrival be random
         channel_param_dict['AoD']=np.zeros(channel_param_dict['AoD'].shape)
         shape=channel_param_dict['AoA'].shape
+        #Which one of below is correct 
         channel_param_dict['AoA']=np.random.rand(shape[0],shape[1])*360
+        #channel_param_dict['AoA']=np.remainder(channel_param_dict['AoA']+np.ones_like(channel_param_dict['AoA'])*np.random.rand(1,1)*360,360)
+        self.print_log({'type':'I', 'msg': "AoA's %s" %(channel_param_dict['AoA'])})
 
         #For each channel there are multiple clusters of taps
         for cluster_index in range(channel_param_dict['AoA'].shape[0]):
@@ -260,16 +264,15 @@ def generate_corr_mat(*arg):
     rxantennas=dmatrx.shape[0] # Number of receive antennas
     txantennas=1 #number of transmit antennas
     Drx=2*np.pi*dmatrx/lamda
-    #RXX integ | phi -pi -pi cos(d*np.sin(phi)*laplacian(sigma,phi)dphi
-    #RXY integ | phi -pi -pi sin(d*np.sin(phi)*laplacian(sigma,phi)dphi
 
-    #Combine these to matrix
-    phirangerx=np.linspace(-np.pi,np.pi,2**16)+2*np.pi/360*AoA
-    dphirx=np.diff(phirangerx)[0]
+    if (sigmarx !=float('-inf')):
+
+        #Combine these to matrix
+        phirangerx=np.linspace(-np.pi,np.pi,2**16)+2*np.pi/360*AoA
+        dphirx=np.diff(phirangerx)[0]
     
-    #There's an error due to numerical integration. With angle 0 the correlation must be 1
-    #calculate that. Ff the sigmarx =-inf, the is undefined 
-    if sigmarx !=float('-inf'):
+        #There's an error due to numerical integration. With angle 0 the correlation must be 1
+        #calculate that. Ff the sigmarx =-inf, the is undefined 
         Kcorrrx=1/(np.sum(laplacian_pdf(sigmarx,phirangerx-2*np.pi/360*AoA))*dphirx)
         laplacianweightmatrx=np.ones((rxantennas,1))@laplacian_pdf(sigmarx,phirangerx-2*np.pi/360*AoA)
         Rrx=np.zeros((rxantennas,rxantennas),dtype='complex')
@@ -303,16 +306,25 @@ def generate_los_mat(*arg): #Distance array, frequency, AoA
     frequency=arg[0]['frequency']                            # Frequency
     lamda=con.c/frequency 
     sigmarx=arg[0]['AS_Rx']                          # Angle spread for the receiver
-    AoA=arg[0]['AoA']                                #Angle of arrival for received in degrees
-    AoD=np.r_[0]
-    lamda=con.c/frequency 
-    Drx=2*np.pi*Rxantennalocations/lamda*np.sin(2*np.pi/360*AoA) #Relative phase shift in receiver array
-    Dtx=2*np.pi*Txantennalocations/lamda*np.sin(2*np.pi/360*AoD) #Relative phase shift in transmitter array
-    LOS_vectorrx=np.exp(-1j*Drx)
-    LOS_vectorrx=LOS_vectorrx.reshape((-1,1))
-    LOS_vectortx=np.exp(1j*Dtx)
-    LOS_vectortx=LOS_vectortx.reshape((-1,1))
-    LOS_mat=LOS_vectorrx@LOS_vectortx.transpose()
+    if (sigmarx !=float('-inf')):
+        AoA=arg[0]['AoA']                                #Angle of arrival for received in degrees
+        AoD=np.r_[0]
+        lamda=con.c/frequency 
+        Drx=2*np.pi*Rxantennalocations/lamda*np.sin(2*np.pi/360*AoA) #Relative phase shift in receiver array
+        Dtx=2*np.pi*Txantennalocations/lamda*np.sin(2*np.pi/360*AoD) #Relative phase shift in transmitter array
+        LOS_vectorrx=np.exp(-1j*Drx)
+        LOS_vectorrx=LOS_vectorrx.reshape((-1,1))
+        LOS_vectortx=np.exp(1j*Dtx)
+        LOS_vectortx=LOS_vectortx.reshape((-1,1))
+        LOS_mat=LOS_vectorrx@LOS_vectortx.transpose()
+    else:
+        Drx=np.zeros_like(Rxantennalocations)
+        Dtx=np.zeros_like(Txantennalocations)
+        LOS_vectorrx=Drx
+        LOS_vectorrx=LOS_vectorrx.reshape((-1,1))
+        LOS_vectortx=Dtx
+        LOS_vectortx=LOS_vectortx.reshape((-1,1))
+        LOS_mat=LOS_vectorrx@LOS_vectortx.transpose()
     return LOS_mat
 
 def generate_lossless_channel(*arg):
