@@ -1,7 +1,7 @@
 # f2_channel class 
 # The channel model in this module is based on 802.11n channel models decribed in
 # IEEE 802.11n-03/940r4 TGn Channel Models
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 28.11.2017 16:17
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 29.11.2017 17:36
 import sys
 sys.path.append ('/home/projects/fader/TheSDK/Entities/refptr/py')
 sys.path.append ('/home/projects/fader/TheSDK/Entities/thesdk/py')
@@ -187,6 +187,7 @@ class f2_channel(thesdk):
         #Which one of below is correct 
         channel_param_dict['AoA']=np.random.rand(shape[0],shape[1])*360
         #channel_param_dict['AoA']=np.remainder(channel_param_dict['AoA']+np.ones_like(channel_param_dict['AoA'])*np.random.rand(1,1)*360,360)
+        #channel_param_dict['AoA']=np.remainder(channel_param_dict['AoA']+np.ones_like(channel_param_dict['AoA'])*90,360)
         self.print_log({'type':'I', 'msg': "AoA's %s" %(channel_param_dict['AoA'])})
 
         #For each channel there are multiple clusters of taps
