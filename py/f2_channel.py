@@ -1,7 +1,7 @@
 # f2_channel class 
 # The channel model in this module is based on 802.11n channel models decribed in
 # IEEE 802.11n-03/940r4 TGn Channel Models
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 29.11.2017 17:36
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 05.12.2017 16:34
 import sys
 sys.path.append ('/home/projects/fader/TheSDK/Entities/refptr/py')
 sys.path.append ('/home/projects/fader/TheSDK/Entities/thesdk/py')
@@ -36,7 +36,8 @@ class f2_channel(thesdk):
         self.iptr_A = refptr();
         self.model='py';             #can be set externally, but is not propagated
         self.channeldict= { 'model': 'lossless', 'distance':2 }
-        self._Z = refptr();
+        self._Z = refptr();          #This is an array of refpointers. One pointer for each Rx antenna
+        #Thus, _Z.Value[k].Value is Srx(time)
         self._classfile=__file__
         self.H=np.array([])
         self.DEBUG= False
@@ -45,11 +46,14 @@ class f2_channel(thesdk):
             self.copy_propval(parent,self.proplist)
             self.parent =parent;
         self.init()
+        self.Rxantennas=len(self.Rxantennalocations)
+        self._Z.Value=[refptr() for i in range(self.Rxantennas)]
     def init(self):
         pass
 
 
     def run(self,*arg):
+        #Parallel run not tested. Parallel signal generators rarely needed 
         if len(arg)>0:
             par=True      #flag for parallel processing
             queue=arg[0]  #multiprocessing.Queue as the first argument
@@ -67,10 +71,14 @@ class f2_channel(thesdk):
             if self.channeldict['model'] == 'lossless':
                 self.lossless()
                 out=self.propagate()
-                if par:
-                    queue.put(out)
+                for i in range(self.Rxantennas):
+                    if par:
+                        z=out[0,:,i]
+                        z.shape=(-1,1)
+                        queue.put(z)
     
-                self._Z.Value=out
+                    self._Z.Value[i].Value=out[0,:,i]
+                    #self._Z.Value[i].Value.shape=(-1,1)
 
             #Test for 802_11n models
             if any(map(lambda x: x== self.channeldict['model'],  ['A', 'B', 'C', 'D', 'E', 'F'])):
@@ -79,10 +87,15 @@ class f2_channel(thesdk):
                 else:
                     self.ch802_11n()
                     out=self.propagate()
-                    if par:
-                        queue.put(out)
+                    for i in range(self.Rxantennas):
+                        if par:
+                            z=out[0,:,i]
+                            z.shape=(-1,1)
+                            queue.put(z)
         
-                    self._Z.Value=out
+                        print(out.shape)
+                        self._Z.Value[i].Value=out[0,:,i]
+                        #self._Z.Value[i].Value.shape=(-1,1)
         else: 
             print("ERROR: Only Python model currently available")
 
