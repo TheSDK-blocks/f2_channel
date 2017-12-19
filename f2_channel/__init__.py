@@ -1,7 +1,7 @@
 # f2_channel class 
 # The channel model in this module is based on 802.11n channel models decribed in
 # IEEE 802.11n-03/940r4 TGn Channel Models
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 06.12.2017 15:13
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 18.12.2017 16:09
 import numpy as np
 import scipy.constants as con
 
@@ -90,8 +90,6 @@ class f2_channel(thesdk):
                             z=out[0,:,i]
                             z.shape=(-1,1)
                             queue.put(z)
-        
-                        print(out.shape)
                         self._Z.Value[i].Value=out[0,:,i]
                         #self._Z.Value[i].Value.shape=(-1,1)
         else: 
