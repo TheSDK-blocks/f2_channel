@@ -1,7 +1,7 @@
 # f2_channel class 
 # The channel model in this module is based on 802.11n channel models decribed in
 # IEEE 802.11n-03/940r4 TGn Channel Models
-# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 18.12.2017 16:09
+# Last modification by Marko Kosunen, marko.kosunen@aalto.fi, 12.04.2018 20:14
 import numpy as np
 import scipy.constants as con
 
@@ -217,8 +217,11 @@ class f2_channel(thesdk):
         Powerscale=np.sqrt(sum(sum(10**(channel_param_dict['pdb']/10))))
         
         
-        self.print_log({'type':'I', 'msg': "Scaling power with %s" %(Powerscale)})
-        return H/(np.sqrt(Powerloss)*Powerscale)
+        normalizer=np.sqrt(sum(sum(np.abs(H)**2)))
+        #self.print_log({'type':'I', 'msg': "Scaling power with %s" %(Powerscale)})
+        self.print_log({'type':'I', 'msg': "Scaling power with %s in order to balance received power to transmitted power" %(normalizer)})
+        self.print_log({'type':'I', 'msg': "Applying %s dB free-space loss" %(10*np.log10(Powerloss))})
+        return H/(np.sqrt(Powerloss)*normalizer)
 
     #Loss model
     def free_space_path_loss(self,distance,frequency,lossdict):

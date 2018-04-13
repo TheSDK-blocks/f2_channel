@@ -122,7 +122,6 @@ def channel_propagate(signal,H):
     #y(n)=SUM s(n-k)@H(k,:,:).T  
     convlen=signal.shape[0]+H.shape[0]-1
     srx=np.zeros((convlen,H.shape[1]))
-    
     for i in range(H.shape[0]): #0th dim is the "time", k of the filter in
         zt=np.zeros((i,H.shape[1]))
         zt.shape=(-1,H.shape[1])
