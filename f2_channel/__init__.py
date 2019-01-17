@@ -31,11 +31,11 @@ class f2_channel(thesdk):
         #Input pointer is a pointer to A matrix indexed as s(user,time, txantenna)
         #Channel is modeled as H(time,rxantenna, txantenna)
         #Thus, Srx is SH^T-> Srx(time,rxantenna)
-        self.iptr_A = refptr();
+        self.iptr_A = IO();
         self.model='py';             #can be set externally, but is not propagated
         self.channeldict= { 'model': 'lossless', 'distance':2 }
-        self._Z = refptr();          #This is an array of refpointers. One pointer for each Rx antenna
-        #Thus, _Z.Value[k].Value is Srx(time)
+        self._Z = IO();          #This is an array of refpointers. One pointer for each Rx antenna
+        #Thus, _Z.Data[k].Data is Srx(time)
         self._classfile=__file__
         self.H=np.array([])
         self.DEBUG= False
@@ -45,7 +45,7 @@ class f2_channel(thesdk):
             self.parent =parent;
         self.init()
         self.Rxantennas=len(self.Rxantennalocations)
-        self._Z.Value=[refptr() for i in range(self.Rxantennas)]
+        self._Z.Data=[IO() for i in range(self.Rxantennas)]
     def init(self):
         pass
 
@@ -63,7 +63,7 @@ class f2_channel(thesdk):
         #BS receiver->user signals are combines before receiver antenna array
         #Mobile receiver->user signals are combines before the transmitter antenna array
         if self.model=='py':
-            self.print_log({'type':'I', 'msg':"The channel model is %s " %(self.channeldict['model'])})
+            self.print_log(type='I', msg="The channel model is %s " %(self.channeldict['model']))
             
             #test for lossless model
             if self.channeldict['model'] == 'lossless':
@@ -75,13 +75,13 @@ class f2_channel(thesdk):
                         z.shape=(-1,1)
                         queue.put(z)
     
-                    self._Z.Value[i].Value=out[0,:,i]
-                    #self._Z.Value[i].Value.shape=(-1,1)
+                    self._Z.Data[i].Data=out[0,:,i]
+                    #self._Z.Data[i].Data.shape=(-1,1)
 
             #Test for 802_11n models
             if any(map(lambda x: x== self.channeldict['model'],  ['A', 'B', 'C', 'D', 'E', 'F'])):
                 if self.Rs < 100e6:
-                    self.print_log({'type':'F', 'msg': "Minimum sample frequency of 100Ms/S required for IEEE 802.11n channel models"})
+                    self.print_log(type='F', msg="Minimum sample frequency of 100Ms/S required for IEEE 802.11n channel models")
                 else:
                     self.ch802_11n()
                     out=self.propagate()
@@ -90,14 +90,14 @@ class f2_channel(thesdk):
                             z=out[0,:,i]
                             z.shape=(-1,1)
                             queue.put(z)
-                        self._Z.Value[i].Value=out[0,:,i]
-                        #self._Z.Value[i].Value.shape=(-1,1)
+                        self._Z.Data[i].Data=out[0,:,i]
+                        #self._Z.Data[i].Data.shape=(-1,1)
         else: 
             print("ERROR: Only Python model currently available")
 
     def ch802_11n(self):
         Rxantennalocations=self.Rxantennalocations.shape[0]
-        txantennas=self.iptr_A.Value.shape[1]
+        txantennas=self.iptr_A.Data.shape[1]
         #param_dict={'K':K, 'tau':tau, 'pdb':pdb, 'AS_Tx':AS_Tx, 'AoD':AoD, 'AS_Rx':AS_Rx, 'AoA':AoA}
         channel_dict={'Rs':self.Rs, 'model':self.channeldict['model'], 'frequency':self.frequency, 'Rxantennalocations':self.Rxantennalocations, 'distance':self.channeldict['distance']}
 
@@ -114,7 +114,7 @@ class f2_channel(thesdk):
 
     def lossless(self):
         Rxantennalocations=self.Rxantennalocations.shape[0]
-        txantennas=self.iptr_A.Value.shape[1]
+        txantennas=self.iptr_A.Data.shape[1]
         channelmodel=self.channeldict['model']
         f=self.channeldict['frequency']
         #param_dict={'K':K, 'tau':tau, 'pdb':pdb, 'AS_Tx':AS_Tx, 'AoD':AoD, 'AS_Rx':AS_Rx, 'AoA':AoA}
@@ -139,7 +139,7 @@ class f2_channel(thesdk):
         #BS receiver->user signals are combined before receiver antenna array
         #Mobile receiver->user signals are combined before the transmitter antenna array
         for i in range(self.Users):  
-            t=channel_propagate(self.iptr_A.Value[i],self.H[i])
+            t=channel_propagate(self.iptr_A.Data[i],self.H[i])
             if self.Channeldir=='Downlink': #Every user receives a dedicated signal
                 if i==0:
                    shape=t.shape
@@ -162,7 +162,7 @@ class f2_channel(thesdk):
         #Bandwidth determined by sample frequency
         noise_rms_voltage=np.sqrt(noise_power_density*self.Rs) 
         msg="Adding %f uV RMS  noise corresponding to %f dBm power to 50 ohm resistor over bandwidth of %f MHz" %(noise_rms_voltage/1e-6, 10*np.log10(noise_rms_voltage**2/(50*1e-3)), self.Rs/1e6)
-        self.print_log({'type':'I', 'msg':msg})
+        self.print_log(type='I', msg=msg)
         
         #complex noise
         noise_voltage=np.sqrt(0.5)*(np.random.normal(0,noise_rms_voltage,srx.shape)+1j*np.random.normal(0,noise_rms_voltage,srx.shape))
@@ -197,7 +197,7 @@ class f2_channel(thesdk):
         channel_param_dict['AoA']=np.random.rand(shape[0],shape[1])*360
         #channel_param_dict['AoA']=np.remainder(channel_param_dict['AoA']+np.ones_like(channel_param_dict['AoA'])*np.random.rand(1,1)*360,360)
         #channel_param_dict['AoA']=np.remainder(channel_param_dict['AoA']+np.ones_like(channel_param_dict['AoA'])*90,360)
-        self.print_log({'type':'I', 'msg': "AoA's %s" %(channel_param_dict['AoA'])})
+        self.print_log(type='I', msg="AoA's %s" %(channel_param_dict['AoA']))
 
         #For each channel there are multiple clusters of taps
         for cluster_index in range(channel_param_dict['AoA'].shape[0]):
@@ -218,9 +218,9 @@ class f2_channel(thesdk):
         
         
         normalizer=np.sqrt(sum(sum(np.abs(H)**2)))
-        #self.print_log({'type':'I', 'msg': "Scaling power with %s" %(Powerscale)})
-        self.print_log({'type':'I', 'msg': "Scaling power with %s in order to balance received power to transmitted power" %(normalizer)})
-        self.print_log({'type':'I', 'msg': "Applying %s dB free-space loss" %(10*np.log10(Powerloss))})
+        #self.print_log(type='I', msg="Scaling power with %s" %(Powerscale))
+        self.print_log(type='I', msg="Scaling power with %s in order to balance received power to transmitted power" %(normalizer))
+        self.print_log(type='I', msg="Applying %s dB free-space loss" %(10*np.log10(Powerloss)))
         return H/(np.sqrt(Powerloss)*normalizer)
 
     #Loss model
@@ -234,7 +234,7 @@ class f2_channel(thesdk):
         elif distance >=lossdict['dbp']:
             loss=(4*np.pi*frequency/con.c*lossdict['dbp']**lossdict['s1'])*(distance/lossdict['dbp'])**lossdict['s2']
             loss=loss*(10**(np.random.normal(0,lossdict['f2'],(1,1))/10))
-        self.print_log({'type':'I','msg':"Path loss is %s dB" %( 10*np.log10(loss)) })
+        self.print_log(type='I', msg="Path loss is %s dB" %( 10*np.log10(loss)) )
         return loss
 
 
@@ -271,19 +271,19 @@ if __name__=="__main__":
     #print(H1.shape)
     #print(srx)
     ch=f2_channel()
-    ch.iptr_A.Value=s
+    ch.iptr_A.Data=s
     ch.channeldict= { 'model': 'C' }
     ch.Rxantennalocations=np.r_[0, 0.3, 0.6]
     ch.ch802_11n()
     ch.run()
-    print(ch._Z.Value)
-    print(ch._Z.Value.shape)
+    print(ch._Z.Data)
+    print(ch._Z.Data.shape)
     ch.Rxantennalocations=np.r_[0, 0.3, 0.6]
     ch.channeldict= { 'model': 'lossless' }
     ch.run()
     #print(ch.H)
     #print(ch.H.shape)
-    #print(ch.iptr_A.Value)
-    print(ch._Z.Value)
-    print(ch._Z.Value.shape)
+    #print(ch.iptr_A.Data)
+    print(ch._Z.Data)
+    print(ch._Z.Data.shape)
 
